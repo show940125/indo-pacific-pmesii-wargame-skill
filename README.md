@@ -2,43 +2,43 @@
 
 [繁體中文說明 / Traditional Chinese](./README.zh-TW.md)
 
-Strategic-level PMESII wargame skill with replayable turn logs, evidence traceability, ACH, baseline deviation analysis, and dual-layer reports.
+This project runs strategic-level PMESII wargames with one priority: every turn is replayable, and every conclusion is traceable.
 
-This repository is built for think-tank-style simulation outputs (CSIS/RAND workflow style), but with explicit auditability and deterministic reruns.
+If you need think-tank-style outputs (red/blue/white adjudication, ACH, decision reports) without black-box behavior, this is what the repo is built for.
 
 ## 1. Scope
 
-This skill is for:
+Good fit:
 
-- Strategic/policy simulation with PMESII dimensions.
-- Red/Blue/White adjudication.
-- Turn-based evidence-driven inference.
-- Replay, audit, and quality-gated reporting.
+- Strategic and policy simulation across PMESII.
+- Red/Blue/White turn-based adjudication.
+- Evidence-driven inference with audit trails.
+- Dual reporting for executives and analysts.
 
-This skill is not for:
+Not a fit:
 
-- Tactical fire-control or precise kill-chain resolution.
-- Classified intelligence pipelines.
-- Real-time ISR integration.
+- Tactical fire-control or precise kill-chain models.
+- Classified intel data pipelines.
+- Live ISR streaming systems.
 
-## 2. Architecture
+## 2. Architecture and Roles
 
 Core cells:
 
-- `Supreme Orchestrator`: run control and sequencing.
-- `Control Cell`: seed, replay, run indexing.
-- `Blue Command`: own-side integrated COA.
-- `Red Command`: adversary COA and counteractions.
-- `White Cell`: adjudication (`Legal/ROE`, `Probability`, `Counterdeception`).
+- `Supreme Orchestrator`: controls run flow and sequencing.
+- `Control Cell`: manages seeds, replayability, run indexing.
+- `Blue Command`: composes blue-side COA.
+- `Red Command`: composes red-side counter-COA.
+- `White Cell`: adjudicates with `Legal/ROE`, `Probability`, and `Counterdeception`.
 - `Intel Cell`: collection, vetting, fusion.
-- `Analysis Cell`: ACH, sensitivity, indicators.
-- `Report Cell`: executive + analyst reporting.
+- `Analysis Cell`: ACH, sensitivity, indicator tracking.
+- `Report Cell`: executive and analyst report generation.
 
 Color roles:
 
-- `Blue`: policy actor being protected/optimized (in default templates).
+- `Blue`: primary stabilizing/protected actor in default templates.
 - `Red`: adversarial/challenging actor.
-- `White`: referee and quality-control adjudicator.
+- `White`: referee and quality-control actor (non-combatant).
 
 ## 3. End-to-End Flow
 
@@ -57,7 +57,7 @@ flowchart TD
     J --> K["verify_trace Quality Gates"]
 ```
 
-Per turn handshake:
+Turn handshake:
 
 1. Mission Context
 2. Blue COA
@@ -66,11 +66,11 @@ Per turn handshake:
 5. PMESII State Update
 6. Event Ledger + Story Cards
 7. Indicators + Key Judgments
-8. Tasking for Next Turn
+8. Next Turn Tasking
 
 ## 4. Baseline Database (SQLite)
 
-Generated automatically as `actor_baseline_db.sqlite` in run output.
+Each run generates `actor_baseline_db.sqlite`.
 
 Tables:
 
@@ -81,14 +81,15 @@ Tables:
 - `diplomatic_baseline`
 - `source_registry`
 
-Important implementation note:
+Current V2.3 baseline behavior:
 
-- Current V2.3 baseline values are calibrated defaults + source-tier priors from `collection_plan`, not a full authoritative ORBAT database.
-- The baseline is reusable across runs, but should be refreshed/overridden as your research program matures.
+- Uses structured, auditable baseline bands plus source-tier priors from `collection_plan`.
+- Does not claim to be a full authoritative ORBAT database.
+- Can be reused across runs; update/override as your research baseline matures.
 
-## 5. Event Engine (Semi-Tactical, Guardrailed)
+## 5. Event Engine (Semi-Tactical Narrative)
 
-Turn events are generated with fixed types:
+Per-turn fixed event types:
 
 - `military_movement`
 - `simulated_engagement`
@@ -97,35 +98,35 @@ Turn events are generated with fixed types:
 - `info_operation`
 - `infrastructure_disruption`
 
-Each event row includes:
+Each `TurnEvent` includes:
 
 - `event_id`, `turn_id`, `actor`, `target`, `location`, `time_window`
 - `event_type`, `action_detail`, `estimated_outcome`
-- `casualty_or_loss_band` (band/range only)
+- `casualty_or_loss_band`
 - `pmesii_delta`, `probability`, `confidence`
 - `evidence_ids`, `assumption_links`
 
-Guardrail:
+Fidelity guardrail:
 
-- No precise casualty numbers are emitted for simulated engagements.
+- `simulated_engagement` outputs loss bands, not precise casualty counts.
 
 ## 6. Input Files
 
-Minimum run inputs:
+Minimum inputs:
 
 - `in/mission.json`
 - `in/scenario_pack.json`
 - `in/actor_config.json`
 - `in/collection_plan.json`
 
-Ready templates:
+Bundled templates:
 
-- Generic templates: `in/*.json`
-- US-Iran scenario templates: `in/*_us_iran_20260305.json`
+- Generic: `in/*.json`
+- US-Iran set: `in/*_us_iran_20260305.json`
 
 ## 7. CLI
 
-Main campaign:
+Full campaign:
 
 ```powershell
 python scripts/run_campaign.py `
@@ -168,11 +169,11 @@ Decision-facing:
 
 - `report_exec.md`
 - `report_analyst.md`
-- `report.md` (alias of exec)
+- `report.md` (compat alias of `report_exec.md`)
 - `turn_timeline.md`
 - `event_timeline.md`
 
-Analytic and audit:
+Analysis and audit:
 
 - `ach.json`, `ach_detailed.json`
 - `key_judgments.json`
@@ -185,30 +186,30 @@ Analytic and audit:
 - `report_metrics.json`
 - `quality_gate_warnings.json`
 
-Replay bundle:
+Replay bundle (`replay_bundle/`):
 
-- `replay_bundle/turn_*_turn_packet.json`
-- `replay_bundle/turn_*_result.json`
-- `replay_bundle/turn_*_state.json`
-- `replay_bundle/turn_*_agent_log.json`
-- `replay_bundle/turn_*_event_ledger.json`
-- `replay_bundle/turn_*_story_cards.json`
+- `turn_*_turn_packet.json`
+- `turn_*_result.json`
+- `turn_*_state.json`
+- `turn_*_agent_log.json`
+- `turn_*_event_ledger.json`
+- `turn_*_story_cards.json`
 
-## 9. Quality Gates
+## 9. Quality Gates (`verify_trace`)
 
-`verify_trace.py` checks:
+Checks include:
 
-- Key judgments include both supporting and contradicting evidence.
-- High-probability + high-confidence judgments satisfy stricter source-independence threshold.
-- ACH detail includes elimination trace and diagnosticity.
-- Event and evidence linkage is complete (V2.3 path).
-- Reports include actionable recommendations and trigger thresholds.
+- Key judgments must include both supporting and contradicting evidence.
+- High-probability + high-confidence judgments must pass stricter source-independence thresholds.
+- ACH detail must include elimination trace and diagnosticity.
+- Event-to-evidence linkage must be complete (V2.3 path).
+- Reports must include actionable recommendations and trigger thresholds.
 
 Length policy:
 
 - `warn`: warning only.
-- `strict`: fail run when threshold is missed.
-- `autofill`: auto-extend report text generation path.
+- `strict`: fail when below thresholds.
+- `autofill`: enable auto-expansion flow.
 
 ## 10. Testing
 
@@ -218,21 +219,21 @@ Run all tests:
 python -m unittest discover -s tests -p "test_*.py"
 ```
 
-What tests cover:
+Coverage highlights:
 
-- ACH cell scoring and aggregation behavior.
-- Term dictionary completeness.
-- Story-card shape and required narrative fields.
+- ACH cell scoring and aggregation.
+- Term/parameter dictionary completeness.
+- Story-card required field shape.
 - Baseline deviation scoring.
 - Semi-tactical casualty precision guardrail.
-- End-to-end pipeline + reproducible seed behavior.
+- End-to-end pipeline and deterministic seed replay.
 
 ## 11. CI
 
-GitHub Actions workflow (`.github/workflows/ci.yml`) runs:
+GitHub Actions workflow: [`/.github/workflows/ci.yml`](./.github/workflows/ci.yml)
 
-- Python 3.10 + 3.11 matrix
-- `python -m unittest discover -s tests -p "test_*.py"`
+- Python 3.10 / 3.11 matrix
+- Runs `python -m unittest discover -s tests -p "test_*.py"`
 
 ## 12. References
 
