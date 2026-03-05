@@ -2,112 +2,92 @@
 
 [English Version](./README.md)
 
-這個 skill 是戰略層兵推引擎，強項是「可重跑、可稽核、可追證據鏈」，不是黑箱生成器。  
-設計目標對齊智庫流程：紅藍對抗、白隊裁決、ACH 推理、回合復盤、決策報告直出。
+這個專案用來跑戰略層 PMESII 兵推。重點不是「做得很花」，而是每一回合都能回放、每個結論都能追到證據，方便研究團隊複核與重跑。
 
-## 1. 你會得到什麼
+## 1. 適用範圍
 
-- 雙層報告：
-  - `report_exec.md`（給主管）
-  - `report_analyst.md`（給分析師）
-- 每回合可回放紀錄：
-  - `turn_*_agent_log.json`
-  - `turn_*_event_ledger.json`
-  - `turn_*_story_cards.json`
-- 可追溯推理鏈：
-  - `evidence -> event -> adjudication -> ACH -> KJ`
-- 品質閘門：
-  - `verify_trace.py` 可做 hard gate / warning gate。
+適合的場景：
 
-## 2. 不要誤解它的定位
+- 戰略與政策層推演（PMESII 六維）。
+- 紅藍白分工裁決。
+- 回合制、可重現、可稽核的研究流程。
+- 需要雙層報告（主管版 + 分析師版）。
 
-這是「戰略政策層 + 半戰術敘事」引擎，不是戰術火力解算器。
+不適合的場景：
 
-- 可以做：戰略路徑、對抗互動、政策代價、風險門檻。
-- 不做：精準命中率、真實毀傷數、機密 ISR 管線。
+- 戰術級射擊/毀傷精算。
+- 機密情資管線。
+- 即時 ISR 串流決策。
 
-`fidelity_guardrail=enabled` 時，模擬交火只會輸出損耗區間（低/中/高），不會輸出精確傷亡數字。
+## 2. 架構與角色
 
-## 3. 架構與角色（你之前要求補清楚的部分）
+核心單元：
 
-核心 cells：
-
-- `Supreme Orchestrator`：任務分解、回合節奏控制。
-- `Control Cell`：seed、重現性、run 索引。
-- `Blue Command`：藍隊（Blue）整合 PMESII 行動方案。
-- `Red Command`：紅隊（Red）整合反制與欺敵方案。
-- `White Cell`：白隊（White）裁決中樞，含：
-  - `White-Legal/ROE`
-  - `White-Probability`
-  - `White-Counterdeception`
+- `Supreme Orchestrator`：控制整個 run 的節奏與順序。
+- `Control Cell`：管理 seed、重現性、run 索引。
+- `Blue Command`：整合藍隊 COA（Course of Action）。
+- `Red Command`：整合紅隊反制行動。
+- `White Cell`：裁決核心，含 `Legal/ROE`、`Probability`、`Counterdeception`。
 - `Intel Cell`：蒐集、來源檢核、融合。
-- `Analysis Cell`：ACH、敏感度、關鍵假設斷點。
-- `Report Cell`：輸出決策版與分析版報告。
+- `Analysis Cell`：ACH、敏感度、指標盤。
+- `Report Cell`：輸出主管版與分析師版報告。
 
-顏色意義：
+顏色角色：
 
-- `Blue`：我方/主防禦方（預設模板中的主體）。
-- `Red`：對抗方/施壓方。
-- `White`：裁判方（不是參戰方）。
+- `Blue`：主要防禦/維穩方（預設模板中的主體）。
+- `Red`：對抗與施壓方。
+- `White`：裁判與品質控管方（不參戰）。
 
-## 4. 回合流程（實作版，不是概念圖）
+## 3. 端到端流程
+
+```mermaid
+flowchart TD
+    A["MissionSpec + ScenarioPack + ActorConfig + CollectionPlan"] --> B["Turn Packet Build"]
+    B --> C["Blue COA"]
+    B --> D["Red COA"]
+    C --> E["White Adjudication"]
+    D --> E
+    E --> F["PMESII State Update"]
+    F --> G["Event Ledger (semi-tactical narrative)"]
+    G --> H["Baseline Deviation Compare (SQLite)"]
+    H --> I["ACH Matrix + Key Judgments"]
+    I --> J["Dual Reports + Timelines + Artifacts"]
+    J --> K["verify_trace Quality Gates"]
+```
 
 每回合固定交握：
 
-1. `Mission Context`
-2. `Blue COA`
-3. `Red COA`
-4. `White Adjudication`
-5. `PMESII State Update`
-6. `Event Ledger`（半戰術事件）
-7. `Indicators + Key Judgments`
-8. `Next Turn Tasking`
+1. Mission Context
+2. Blue COA
+3. Red COA
+4. White Adjudication
+5. PMESII State Update
+6. Event Ledger + Story Cards
+7. Indicators + Key Judgments
+8. Next Turn Tasking
 
-你在輸出中會直接看到：
+## 4. 基底資料庫（SQLite）
 
-- 本回合做了哪些具體事件（軍事調動、制裁、外交斡旋、資訊戰、基礎設施擾動）。
-- 為何白隊做出該裁決。
-- 哪些證據支持、哪些證據反對。
-- ACH 哪些 cell 被拉動。
-
-## 5. 行為者基底資料庫（SQLite）到底裝什麼
-
-每次 `run_campaign.py` 會在輸出目錄生成：
-
-- `actor_baseline_db.sqlite`
+執行時會自動生成 `actor_baseline_db.sqlite`。
 
 資料表：
 
-- `actors`：行為者主檔（id、角色、關聯）。
-- `pmesii_baseline`：各維常態帶（normal_low/high + volatility）。
-- `military_baseline`：兵力結構/部署區/裝備輪廓/動員指標。
-- `economic_baseline`：制裁暴露、貿易依賴、能源脆弱度。
-- `diplomatic_baseline`：盟友網絡、外交通道活躍度、斡旋開放度。
-- `source_registry`：來源群組、更新頻率、可靠度先驗。
+- `actors`
+- `pmesii_baseline`
+- `military_baseline`
+- `economic_baseline`
+- `diplomatic_baseline`
+- `source_registry`
 
-重點說清楚：
+目前版本重點：
 
-- V2.3 目前是「公開來源可稽核的結構化 baseline + 參數化區間」。
-- 不是完整的國家級 ORBAT 真實數據庫。
-- 它是可重用基底，不必每次重抓；但若你有更高品質基線，應該覆蓋更新。
+- V2.3 基線屬於「可稽核參數化基線 + 來源層級先驗」。
+- 不是完整 ORBAT 權威資料庫。
+- 可以跨 run 重用，也建議依研究需求定期覆蓋更新。
 
-## 6. 基底偏離（baseline deviation）是什麼
+## 5. 事件引擎（半戰術敘事）
 
-`baseline_deviation_report.json` 會記錄：
-
-- 哪個事件在何維度偏離常態帶。
-- 偏離方向（高於/低於/波動突增）。
-- 偏離幅度與嚴重分數（`severity_score`）。
-- 連到的 `event_id` 與 `evidence_ids`。
-
-`average_score=0.283` 的意思是：
-
-- 本次所有偏離紀錄的平均嚴重度是 0.283（0~1 區間）。
-- 屬於「有偏離但未到失控高烈度」的中低段。
-
-## 7. 事件引擎（V2.3）
-
-固定事件型別：
+每回合會生成固定事件型別：
 
 - `military_movement`
 - `simulated_engagement`
@@ -116,7 +96,7 @@
 - `info_operation`
 - `infrastructure_disruption`
 
-每筆 `TurnEvent` 固定欄位：
+每筆事件固定欄位：
 
 - `event_id`, `turn_id`, `actor`, `target`, `location`, `time_window`
 - `event_type`, `action_detail`, `estimated_outcome`
@@ -124,11 +104,27 @@
 - `pmesii_delta`, `probability`, `confidence`
 - `evidence_ids`, `assumption_links`
 
-這讓報告不再只有「參數 + 分數」，而是可讀事件鏈。
+精度護欄：
 
-## 8. 快速啟動
+- `simulated_engagement` 不輸出精確傷亡數字，只用區間/等級描述。
 
-### 8.1 完整 campaign（建議）
+## 6. 輸入檔案
+
+最小輸入：
+
+- `in/mission.json`
+- `in/scenario_pack.json`
+- `in/actor_config.json`
+- `in/collection_plan.json`
+
+內建範本：
+
+- 通用範本：`in/*.json`
+- 美伊情境範本：`in/*_us_iran_20260305.json`
+
+## 7. CLI 用法
+
+完整 campaign：
 
 ```powershell
 python scripts/run_campaign.py `
@@ -150,7 +146,7 @@ python scripts/run_campaign.py `
   --length-counting cjk_chars
 ```
 
-### 8.2 驗證品質閘門
+品質驗證：
 
 ```powershell
 python scripts/verify_trace.py `
@@ -165,63 +161,77 @@ python scripts/verify_trace.py `
   --length-policy warn
 ```
 
-## 9. 核心輸出檔案
+## 8. 主要輸出
 
-決策與閱讀：
+決策閱讀輸出：
 
 - `report_exec.md`
 - `report_analyst.md`
-- `report.md`（相容別名）
+- `report.md`（`report_exec.md` 相容別名）
 - `turn_timeline.md`
 - `event_timeline.md`
-- `terms_and_parameters.md`
 
-分析與稽核：
+分析與稽核輸出：
 
 - `ach.json`, `ach_detailed.json`
 - `key_judgments.json`
+- `sensitivity.json`
 - `evidence.json`
 - `event_ledger.json`
 - `baseline_deviation_report.json`
 - `run_log.jsonl`
+- `run_artifact.json`
 - `report_metrics.json`
 - `quality_gate_warnings.json`
-- `run_artifact.json`
 
-逐回合回放：
+回放輸出（`replay_bundle/`）：
 
-- `replay_bundle/turn_*_turn_packet.json`
-- `replay_bundle/turn_*_result.json`
-- `replay_bundle/turn_*_state.json`
-- `replay_bundle/turn_*_agent_log.json`
-- `replay_bundle/turn_*_event_ledger.json`
-- `replay_bundle/turn_*_story_cards.json`
+- `turn_*_turn_packet.json`
+- `turn_*_result.json`
+- `turn_*_state.json`
+- `turn_*_agent_log.json`
+- `turn_*_event_ledger.json`
+- `turn_*_story_cards.json`
 
-## 10. 測試與 CI
+## 9. 品質閘門（verify_trace）
 
-本機測試：
+`verify_trace.py` 會檢查：
+
+- KJ 同時有支持與反證證據。
+- 高機率 + 高信心 KJ 達到更嚴的獨立來源門檻。
+- ACH 明細包含 elimination trace 與 diagnosticity。
+- 事件與證據鏈結完整（V2.3 路徑）。
+- 報告包含可執行建議與觸發門檻。
+
+字數政策：
+
+- `warn`：僅警告，不擋 run。
+- `strict`：低於門檻直接失敗。
+- `autofill`：進入自動擴寫流程。
+
+## 10. 測試
+
+執行全部測試：
 
 ```powershell
 python -m unittest discover -s tests -p "test_*.py"
 ```
 
-CI（GitHub Actions）會跑：
+目前覆蓋：
 
-- Python 3.10 / 3.11
-- 全部 `unittest` 測試
+- ACH cell 計分與聚合邏輯。
+- 術語/參數字典完整性。
+- 故事卡欄位完整性。
+- baseline deviation 計分。
+- 半戰術精度護欄（禁止精確傷亡數字）。
+- 端到端流程與 seed 重現性。
 
-## 11. 已知限制與下一步建議
+## 11. CI
 
-限制：
+GitHub Actions：[`/.github/workflows/ci.yml`](./.github/workflows/ci.yml)
 
-- 多行為者 coalition 原生引擎尚未上線（目前是 Blue/Red 主結構）。
-- baseline 目前是可稽核參數化基線，非完整全球軍事資料庫。
-
-優先下一步：
-
-1. 把 `actor_baseline_db` 升級為可外部匯入（CSV/SQL）模式。  
-2. 增加「多行為者互動矩陣」但維持 V2.3 報告品質。  
-3. 對 `collection_plan` 做來源健康度監控與自動輪替。
+- Python 3.10 / 3.11 matrix
+- 執行 `python -m unittest discover -s tests -p "test_*.py"`
 
 ## 12. 參考文件
 
