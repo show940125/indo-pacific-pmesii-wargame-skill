@@ -1,0 +1,41 @@
+{
+  "type": "object",
+  "required": [
+    "deviation_id",
+    "turn_id",
+    "actor",
+    "dimension",
+    "event_id",
+    "severity_score",
+    "evidence_ids"
+  ],
+  "properties": {
+    "deviation_id": {
+      "type": "string"
+    },
+    "turn_id": {
+      "type": "integer"
+    },
+    "actor": {
+      "type": "string"
+    },
+    "dimension": {
+      "type": "string"
+    },
+    "event_id": {
+      "type": "string"
+    },
+    "event_type": {
+      "type": "string"
+    },
+    "severity_score": {
+      "type": "number"
+    },
+    "evidence_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

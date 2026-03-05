@@ -1,0 +1,32 @@
+{
+  "name": "indo_pacific_economic_coercion",
+  "baseline": "Economic pressure intensifies through selective restrictions and shipping uncertainty.",
+  "excursions": [
+    "energy_price_shock",
+    "supply_chain_rechanneling"
+  ],
+  "assumption_tree": [
+    {
+      "name": "trade_route_flexibility",
+      "stress_factor": 1.3
+    },
+    {
+      "name": "contingency_stockpile_readiness",
+      "stress_factor": 1.1
+    }
+  ],
+  "termination_conditions": [
+    "turn_limit_reached",
+    "economic_resilience_below_20"
+  ],
+  "shock_library": [
+    {
+      "title": "Targeted export restriction announcement",
+      "start_turn": 3,
+      "end_turn": 6,
+      "source": "official trade bulletin",
+      "source_tier": "official",
+      "independence_group": "gov_trade"
+    }
+  ]
+}

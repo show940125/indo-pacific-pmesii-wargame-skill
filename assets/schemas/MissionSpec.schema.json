@@ -1,0 +1,143 @@
+{
+  "type": "object",
+  "required": [
+    "topic",
+    "decision_questions",
+    "geo_scope",
+    "time_window",
+    "classification",
+    "run_mode",
+    "success_criteria"
+  ],
+  "properties": {
+    "topic": {
+      "type": "string"
+    },
+    "decision_questions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "geo_scope": {
+      "type": "string"
+    },
+    "time_window": {
+      "type": "object",
+      "required": [
+        "start",
+        "end"
+      ],
+      "properties": {
+        "start": {
+          "type": "string"
+        },
+        "end": {
+          "type": "string"
+        }
+      }
+    },
+    "classification": {
+      "type": "string"
+    },
+    "run_mode": {
+      "type": "string",
+      "enum": [
+        "quick",
+        "deep",
+        "custom"
+      ]
+    },
+    "success_criteria": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "seed": {
+      "type": "integer"
+    },
+    "turns": {
+      "type": "integer"
+    },
+    "output_lang": {
+      "type": "string"
+    },
+    "report_profile": {
+      "type": "string",
+      "enum": [
+        "dual_layer",
+        "exec_only",
+        "technical_full"
+      ]
+    },
+    "ach_profile": {
+      "type": "string",
+      "enum": [
+        "full",
+        "graph",
+        "mid"
+      ]
+    },
+    "term_annotation": {
+      "type": "string",
+      "enum": [
+        "appendix_only",
+        "inline_glossary",
+        "repeat"
+      ]
+    },
+    "narrative_mode": {
+      "type": "string",
+      "enum": [
+        "battle_report",
+        "commander_log",
+        "event_cards"
+      ]
+    },
+    "baseline_mode": {
+      "type": "string",
+      "enum": [
+        "public_auto"
+      ]
+    },
+    "event_granularity": {
+      "type": "string",
+      "enum": [
+        "semi_tactical"
+      ]
+    },
+    "fidelity_guardrail": {
+      "type": "string",
+      "enum": [
+        "disabled",
+        "enabled"
+      ]
+    },
+    "length_policy": {
+      "type": "string",
+      "enum": [
+        "autofill",
+        "strict",
+        "warn"
+      ]
+    },
+    "min_chars_exec": {
+      "type": "integer"
+    },
+    "min_chars_analyst": {
+      "type": "integer"
+    },
+    "length_counting": {
+      "type": "string",
+      "enum": [
+        "all_chars",
+        "cjk_chars",
+        "words"
+      ]
+    },
+    "strict_kj_threshold": {
+      "type": "integer"
+    }
+  }
+}

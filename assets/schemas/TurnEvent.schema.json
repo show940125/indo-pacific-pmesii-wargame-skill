@@ -1,0 +1,81 @@
+{
+  "type": "object",
+  "required": [
+    "event_id",
+    "turn_id",
+    "actor",
+    "target",
+    "location",
+    "time_window",
+    "event_type",
+    "action_detail",
+    "estimated_outcome",
+    "casualty_or_loss_band",
+    "pmesii_delta",
+    "probability",
+    "confidence",
+    "evidence_ids",
+    "assumption_links"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string"
+    },
+    "turn_id": {
+      "type": "integer"
+    },
+    "actor": {
+      "type": "string"
+    },
+    "target": {
+      "type": "string"
+    },
+    "location": {
+      "type": "string"
+    },
+    "time_window": {
+      "type": "object"
+    },
+    "event_type": {
+      "type": "string",
+      "enum": [
+        "military_movement",
+        "simulated_engagement",
+        "sanction_action",
+        "diplomatic_mediation",
+        "info_operation",
+        "infrastructure_disruption"
+      ]
+    },
+    "action_detail": {
+      "type": "string"
+    },
+    "estimated_outcome": {
+      "type": "string"
+    },
+    "casualty_or_loss_band": {
+      "type": "string"
+    },
+    "pmesii_delta": {
+      "type": "object"
+    },
+    "probability": {
+      "type": "number"
+    },
+    "confidence": {
+      "type": "number"
+    },
+    "evidence_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "assumption_links": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

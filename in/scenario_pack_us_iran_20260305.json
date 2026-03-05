@@ -1,0 +1,88 @@
+{
+  "baseline": "美伊緊張持續在多戰區透過代理人與有限打擊互動；雙方試圖避免全面戰爭但存在誤判與連鎖報復風險。",
+  "excursions": [
+    "荷姆茲海峽航運風險急升或短暫中斷",
+    "高密度資訊戰/假訊息引發誤判",
+    "對關鍵基礎設施的網攻/破壞造成升級壓力"
+  ],
+  "assumption_tree": [
+    {
+      "name": "熱線/去衝突機制可用性",
+      "stress_factor": 1.35
+    },
+    {
+      "name": "代理人行動可控性（指揮鏈一致）",
+      "stress_factor": 1.3
+    },
+    {
+      "name": "區域盟友協調與決策速度",
+      "stress_factor": 1.2
+    },
+    {
+      "name": "能源價格與航運成本對政治決策的反饋強度",
+      "stress_factor": 1.25
+    }
+  ],
+  "termination_conditions": [
+    "turn_limit_reached",
+    "跨域同時升級越線（軍事+資訊+航運）"
+  ],
+  "shock_library": [
+    {
+      "title": "代理人對美軍/盟友據點的火箭或無人機襲擊（報復循環）",
+      "start_turn": 1,
+      "end_turn": 3,
+      "source": "official defense briefings",
+      "source_tier": "official",
+      "independence_group": "defense_official"
+    },
+    {
+      "title": "波斯灣或紅海航運事件（扣押/攻擊/保險費飆升；含荷姆茲風險）",
+      "start_turn": 2,
+      "end_turn": 6,
+      "source": "shipping advisories + public reporting",
+      "source_tier": "public",
+      "independence_group": "maritime_public"
+    },
+    {
+      "title": "荷姆茲海峽航運受阻（船舶改道/通行限制/風險等級上調）",
+      "start_turn": 3,
+      "end_turn": 7,
+      "source": "maritime advisories",
+      "source_tier": "public",
+      "independence_group": "maritime_official"
+    },
+    {
+      "title": "制裁與金融管制加碼，引發經濟與政治壓力傳導",
+      "start_turn": 3,
+      "end_turn": 8,
+      "source": "official sanctions announcements",
+      "source_tier": "official",
+      "independence_group": "treasury_official"
+    },
+    {
+      "title": "資訊戰加速（假訊息、偽造聲明、誤報造成誤判風險）",
+      "start_turn": 1,
+      "end_turn": 8,
+      "source": "open media synthesis",
+      "source_tier": "public",
+      "independence_group": "open_media_cluster"
+    },
+    {
+      "title": "區域關鍵基礎設施遭網攻或破壞（能源/港口/通訊）",
+      "start_turn": 4,
+      "end_turn": 7,
+      "source": "mixed public reporting",
+      "source_tier": "mixed",
+      "independence_group": "infra_mixed"
+    }
+  ],
+  "initial_state": {
+    "P": 62.0,
+    "M": 78.0,
+    "E": 57.0,
+    "S": 50.0,
+    "I": 80.0,
+    "Infra": 62.0
+  }
+}

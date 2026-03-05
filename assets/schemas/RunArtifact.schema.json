@@ -1,0 +1,45 @@
+{
+  "type": "object",
+  "required": [
+    "report_md",
+    "report_exec_md",
+    "report_analyst_md",
+    "dashboard_json",
+    "ach_json",
+    "ach_detailed_json",
+    "run_log_jsonl",
+    "replay_bundle"
+  ],
+  "properties": {
+    "report_md": {
+      "type": "string"
+    },
+    "report_exec_md": {
+      "type": "string"
+    },
+    "report_analyst_md": {
+      "type": "string"
+    },
+    "report_metrics_json": {
+      "type": "string"
+    },
+    "quality_gate_warnings_json": {
+      "type": "string"
+    },
+    "dashboard_json": {
+      "type": "string"
+    },
+    "ach_json": {
+      "type": "string"
+    },
+    "ach_detailed_json": {
+      "type": "string"
+    },
+    "run_log_jsonl": {
+      "type": "string"
+    },
+    "replay_bundle": {
+      "type": "string"
+    }
+  }
+}

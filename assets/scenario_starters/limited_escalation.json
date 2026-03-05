@@ -1,0 +1,32 @@
+{
+  "name": "indo_pacific_limited_escalation",
+  "baseline": "Localized military friction rises while political channels remain partially open.",
+  "excursions": [
+    "command_and_control_disruption",
+    "diplomatic_backchannel_success"
+  ],
+  "assumption_tree": [
+    {
+      "name": "deconfliction_hotline_reliability",
+      "stress_factor": 1.4
+    },
+    {
+      "name": "regional_force_posture_visibility",
+      "stress_factor": 1.2
+    }
+  ],
+  "termination_conditions": [
+    "turn_limit_reached",
+    "military_pressure_above_90"
+  ],
+  "shock_library": [
+    {
+      "title": "Localized maritime-air close encounter",
+      "start_turn": 1,
+      "end_turn": 2,
+      "source": "regional defense press release",
+      "source_tier": "official",
+      "independence_group": "defense_official"
+    }
+  ]
+}

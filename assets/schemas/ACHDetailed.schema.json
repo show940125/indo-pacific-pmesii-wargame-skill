@@ -1,0 +1,50 @@
+{
+  "type": "object",
+  "required": [
+    "hypotheses",
+    "evidence_rows",
+    "cell_scores",
+    "diagnosticity",
+    "weighted_totals",
+    "sensitivity_runs",
+    "elimination_trace"
+  ],
+  "properties": {
+    "hypotheses": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "evidence_rows": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "cell_scores": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "diagnosticity": {
+      "type": "object"
+    },
+    "weighted_totals": {
+      "type": "object"
+    },
+    "sensitivity_runs": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "elimination_trace": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    }
+  }
+}

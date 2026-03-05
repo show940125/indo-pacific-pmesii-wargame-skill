@@ -1,0 +1,28 @@
+{
+  "sources": [
+    {
+      "name": "official_defense_release",
+      "tier": "official",
+      "independence_group": "gov_defense",
+      "focus": "force_posture_update"
+    },
+    {
+      "name": "regional_economic_watch",
+      "tier": "public",
+      "independence_group": "econ_media",
+      "focus": "trade_pressure_signals"
+    },
+    {
+      "name": "multilateral_statement_tracker",
+      "tier": "official",
+      "independence_group": "multilateral_official",
+      "focus": "policy_alignment_signal"
+    },
+    {
+      "name": "open_source_info_monitor",
+      "tier": "mixed",
+      "independence_group": "osint_mixed",
+      "focus": "information_domain_activity"
+    }
+  ]
+}

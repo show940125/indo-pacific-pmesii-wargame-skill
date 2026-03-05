@@ -1,0 +1,22 @@
+{
+  "type": "object",
+  "required": [
+    "actor_id",
+    "name",
+    "role"
+  ],
+  "properties": {
+    "actor_id": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "role": {
+      "type": "string"
+    },
+    "links": {
+      "type": "string"
+    }
+  }
+}

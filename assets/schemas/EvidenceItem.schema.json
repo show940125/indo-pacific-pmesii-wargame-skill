@@ -1,0 +1,50 @@
+{
+  "type": "object",
+  "required": [
+    "evidence_id",
+    "timestamp",
+    "source",
+    "source_tier",
+    "independence_group",
+    "claim",
+    "reliability_score",
+    "independence_score",
+    "recency_score",
+    "relevance_to_hypotheses"
+  ],
+  "properties": {
+    "evidence_id": {
+      "type": "string"
+    },
+    "timestamp": {
+      "type": "string"
+    },
+    "source": {
+      "type": "string"
+    },
+    "source_tier": {
+      "type": "string"
+    },
+    "independence_group": {
+      "type": "string"
+    },
+    "claim": {
+      "type": "string"
+    },
+    "reliability_score": {
+      "type": "number"
+    },
+    "independence_score": {
+      "type": "number"
+    },
+    "recency_score": {
+      "type": "number"
+    },
+    "relevance_to_hypotheses": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

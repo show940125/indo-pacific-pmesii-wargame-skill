@@ -1,0 +1,31 @@
+{
+  "type": "object",
+  "required": [
+    "P",
+    "M",
+    "E",
+    "S",
+    "I",
+    "Infra"
+  ],
+  "properties": {
+    "P": {
+      "type": "number"
+    },
+    "M": {
+      "type": "number"
+    },
+    "E": {
+      "type": "number"
+    },
+    "S": {
+      "type": "number"
+    },
+    "I": {
+      "type": "number"
+    },
+    "Infra": {
+      "type": "number"
+    }
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "topic": "印太複合 PMESII 壓力下的戰略競逐",
+  "decision_questions": [
+    "未來 30 天的升級風險輪廓為何？",
+    "哪些政策槓桿可以在不越線的前提下提升韌性？",
+    "下一回合應優先監控哪些領先指標？"
+  ],
+  "geo_scope": "印太多情境",
+  "time_window": {
+    "start": "2026-03-01T00:00:00",
+    "end": "2026-06-30T00:00:00"
+  },
+  "classification": "UNCLASSIFIED",
+  "run_mode": "quick",
+  "output_lang": "zh-TW",
+  "success_criteria": [
+    "產出具證據鏈支持的關鍵判斷",
+    "保留可重播的逐回合追溯紀錄",
+    "透過敏感度分析辨識假設斷點"
+  ],
+  "seed": 20260305
+}

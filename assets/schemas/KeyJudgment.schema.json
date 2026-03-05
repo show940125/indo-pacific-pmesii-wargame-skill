@@ -1,0 +1,101 @@
+{
+  "type": "object",
+  "required": [
+    "claim",
+    "facts",
+    "inferences",
+    "probability_range",
+    "confidence_level",
+    "counterevidence",
+    "assumption_breakpoints",
+    "evidence_ids",
+    "supporting_evidence_ids",
+    "contradicting_evidence_ids",
+    "supporting_event_ids",
+    "contradicting_event_ids",
+    "baseline_deviation_event_ids"
+  ],
+  "properties": {
+    "claim": {
+      "type": "string"
+    },
+    "facts": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "inferences": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "probability_range": {
+      "type": "string",
+      "enum": [
+        "極低",
+        "低",
+        "中",
+        "高",
+        "極高"
+      ]
+    },
+    "confidence_level": {
+      "type": "string",
+      "enum": [
+        "低",
+        "中",
+        "高"
+      ]
+    },
+    "counterevidence": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "assumption_breakpoints": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "evidence_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "supporting_evidence_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "contradicting_evidence_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "supporting_event_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "contradicting_event_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "baseline_deviation_event_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

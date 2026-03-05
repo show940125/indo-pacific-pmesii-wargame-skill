@@ -1,0 +1,5 @@
+version: 1
+interface:
+  display_name: Indo-Pacific PMESII Wargame
+  short_description: Strategic multi-agent PMESII campaign simulator with evidence-traceable adjudication.
+  default_prompt: Run a strategic Indo-Pacific PMESII wargame and produce a decision brief plus machine-readable artifacts.

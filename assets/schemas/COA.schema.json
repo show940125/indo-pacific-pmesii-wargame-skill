@@ -1,0 +1,44 @@
+{
+  "type": "object",
+  "required": [
+    "actor_id",
+    "intent",
+    "action_bundle",
+    "subagent_actions",
+    "resource_cost",
+    "expected_effect",
+    "confidence"
+  ],
+  "properties": {
+    "actor_id": {
+      "type": "string"
+    },
+    "intent": {
+      "type": "string"
+    },
+    "action_bundle": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "subagent_actions": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "resource_cost": {
+      "type": "number"
+    },
+    "expected_effect": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "confidence": {
+      "type": "number"
+    }
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "type": "object",
+  "required": [
+    "leading",
+    "significant",
+    "confirmatory"
+  ],
+  "properties": {
+    "leading": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "significant": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "confirmatory": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    }
+  }
+}

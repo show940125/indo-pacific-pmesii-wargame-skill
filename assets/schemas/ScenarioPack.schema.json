@@ -1,0 +1,42 @@
+{
+  "type": "object",
+  "required": [
+    "baseline",
+    "excursions",
+    "assumption_tree",
+    "termination_conditions",
+    "shock_library"
+  ],
+  "properties": {
+    "baseline": {
+      "type": "string"
+    },
+    "excursions": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "assumption_tree": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "termination_conditions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "shock_library": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "initial_state": {
+      "type": "object"
+    }
+  }
+}

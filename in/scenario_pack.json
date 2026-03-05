@@ -1,0 +1,60 @@
+{
+  "baseline": "Sustained strategic competition with periodic gray-zone shocks across information, economic, and military dimensions.",
+  "excursions": [
+    "high_tempo_info_campaign",
+    "regional_trade_disruption",
+    "localized_military_friction"
+  ],
+  "assumption_tree": [
+    {
+      "name": "alliance_consultation_speed",
+      "stress_factor": 1.1
+    },
+    {
+      "name": "critical_supply_chain_resilience",
+      "stress_factor": 1.3
+    },
+    {
+      "name": "crisis_hotline_reliability",
+      "stress_factor": 1.4
+    }
+  ],
+  "termination_conditions": [
+    "turn_limit_reached",
+    "compound_escalation_threshold_crossed"
+  ],
+  "shock_library": [
+    {
+      "title": "Coordinated narrative pressure campaign",
+      "start_turn": 2,
+      "end_turn": 5,
+      "source": "regional open media synthesis",
+      "source_tier": "public",
+      "independence_group": "open_media_cluster"
+    },
+    {
+      "title": "Selective trade restriction signal",
+      "start_turn": 3,
+      "end_turn": 7,
+      "source": "official trade disclosure",
+      "source_tier": "official",
+      "independence_group": "official_trade"
+    },
+    {
+      "title": "Maritime close encounter incident",
+      "start_turn": 1,
+      "end_turn": 2,
+      "source": "defense briefings",
+      "source_tier": "official",
+      "independence_group": "defense_official"
+    }
+  ],
+  "initial_state": {
+    "P": 54.0,
+    "M": 58.0,
+    "E": 52.0,
+    "S": 50.0,
+    "I": 57.0,
+    "Infra": 53.0
+  }
+}

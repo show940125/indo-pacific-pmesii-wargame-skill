@@ -1,0 +1,22 @@
+{
+  "mission": {
+    "topic": "",
+    "geo_scope": "",
+    "run_mode": ""
+  },
+  "pmesii_state": {
+    "P": 0,
+    "M": 0,
+    "E": 0,
+    "S": 0,
+    "I": 0,
+    "Infra": 0
+  },
+  "indicators": {
+    "leading": [],
+    "significant": [],
+    "confirmatory": []
+  },
+  "key_judgments": [],
+  "updated_at": ""
+}

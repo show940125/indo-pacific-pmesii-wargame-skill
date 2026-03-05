@@ -1,0 +1,34 @@
+{
+  "sources": [
+    {
+      "name": "官方國防簡報/戰區公告",
+      "tier": "official",
+      "independence_group": "defense_official",
+      "focus": "軍事態勢與交火/襲擊通報"
+    },
+    {
+      "name": "制裁/財政部公告與國際金融監管資訊",
+      "tier": "official",
+      "independence_group": "treasury_official",
+      "focus": "制裁變化與經濟壓力訊號"
+    },
+    {
+      "name": "航運安全公告/保險與港口資訊",
+      "tier": "public",
+      "independence_group": "maritime_public",
+      "focus": "紅海/波斯灣航運風險與成本變化"
+    },
+    {
+      "name": "海事安全官方通報（UKMTO/類似）",
+      "tier": "official",
+      "independence_group": "maritime_official",
+      "focus": "荷姆茲/紅海航運風險等級與事件通報"
+    },
+    {
+      "name": "多邊組織/外交聲明追蹤（含 UN）",
+      "tier": "official",
+      "independence_group": "multilateral_official",
+      "focus": "外交降溫或升級訊號"
+    }
+  ]
+}

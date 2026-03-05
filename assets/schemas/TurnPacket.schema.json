@@ -1,0 +1,33 @@
+{
+  "type": "object",
+  "required": [
+    "turn_id",
+    "prior_state_hash",
+    "intel_digest",
+    "constraints",
+    "tasking"
+  ],
+  "properties": {
+    "turn_id": {
+      "type": "integer"
+    },
+    "prior_state_hash": {
+      "type": "string"
+    },
+    "intel_digest": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "constraints": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "tasking": {
+      "type": "object"
+    }
+  }
+}

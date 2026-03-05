@@ -1,0 +1,65 @@
+{
+  "type": "object",
+  "required": [
+    "turn_id",
+    "decision",
+    "rule_hits",
+    "rule_fires",
+    "decision_rationale",
+    "counterdeception_findings",
+    "uncertainty_notes",
+    "stochastic_seed",
+    "override_note",
+    "evidence_ids"
+  ],
+  "properties": {
+    "turn_id": {
+      "type": "integer"
+    },
+    "decision": {
+      "type": "string"
+    },
+    "rule_hits": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "rule_fires": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "decision_rationale": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "counterdeception_findings": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "uncertainty_notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "stochastic_seed": {
+      "type": "integer"
+    },
+    "override_note": {
+      "type": "string"
+    },
+    "evidence_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

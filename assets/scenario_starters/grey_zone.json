@@ -1,0 +1,32 @@
+{
+  "name": "indo_pacific_grey_zone_pressure",
+  "baseline": "Persistent gray-zone competition with elevated information pressure and low-intensity maritime incidents.",
+  "excursions": [
+    "alliance_consultation_delay",
+    "coordinated_info_campaign_surge"
+  ],
+  "assumption_tree": [
+    {
+      "name": "alliance_response_latency",
+      "stress_factor": 1.1
+    },
+    {
+      "name": "maritime_incident_frequency",
+      "stress_factor": 1.2
+    }
+  ],
+  "termination_conditions": [
+    "turn_limit_reached",
+    "escalation_score_above_85"
+  ],
+  "shock_library": [
+    {
+      "title": "Disputed-zone maritime standoff",
+      "start_turn": 2,
+      "end_turn": 4,
+      "source": "regional maritime reporting",
+      "source_tier": "public",
+      "independence_group": "media_maritime"
+    }
+  ]
+}
