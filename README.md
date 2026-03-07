@@ -1,10 +1,29 @@
-# Indo-Pacific PMESII Wargame Skill (V2.3)
+# Indo-Pacific PMESII Wargame Skill (V2.5)
 
 [繁體中文說明 / Traditional Chinese](./README.zh-TW.md)
 
 This project runs strategic-level PMESII wargames with one priority: every turn is replayable, and every conclusion is traceable.
 
 If you need think-tank-style outputs (red/blue/white adjudication, ACH, decision reports) without black-box behavior, this is what the repo is built for.
+
+## 0. What Changed in V2.5
+
+V2.5 is the first version that stops pretending "source labels" are enough.
+
+Main deltas from V2.3:
+
+- `Evidence Modes`: `synthetic`, `hybrid`, and `live_limited`.
+- `Live-Seed Ready`: limited open-source capture can now be frozen into replay-safe snapshots.
+- `Provenance Fields`: evidence can carry `source_url`, `publisher`, `published_at`, `captured_at`, `excerpt`, `capture_mode`, `claim_extraction_method`, `source_family`, `cluster_id`, and `provenance_confidence`.
+- `AI Expert Review Cell`: fixed multi-role review layer (`Regional Strategist`, `Operational/Military Analyst`, `OSINT & Source-Vetting Skeptic`, `Legal/ROE & Escalation Reviewer`) runs after base adjudication.
+- `Replay Hardening`: turn packets can persist `captured_evidence`, `source_capture_manifest`, `claim_registry`, and `evidence_clusters`, so replay does not need to hit the network again.
+- `New Artifacts`: `source_capture_manifest.json`, `claim_registry.json`, `evidence_clusters.json`, `expert_review.json`, `adjudication_dissent.json`.
+
+What V2.5 is not:
+
+- Not a full research-grade OSINT ingestion platform.
+- Not a human-expert white-cell replacement.
+- Not a tactical combat model.
 
 ## 1. Scope
 
@@ -31,6 +50,7 @@ Core cells:
 - `Red Command`: composes red-side counter-COA.
 - `White Cell`: adjudicates with `Legal/ROE`, `Probability`, and `Counterdeception`.
 - `Intel Cell`: collection, vetting, fusion.
+- `AI Expert Review Cell`: post-adjudication review and dissent generation.
 - `Analysis Cell`: ACH, sensitivity, indicator tracking.
 - `Report Cell`: executive and analyst report generation.
 
@@ -119,6 +139,19 @@ Minimum inputs:
 - `in/actor_config.json`
 - `in/collection_plan.json`
 
+Important V2.5 mission fields:
+
+- `evidence_mode`: `synthetic|hybrid|live_limited`
+- `review_mode`: `none|ai_panel`
+- `expert_panel_profile`
+- `max_live_sources_per_turn`
+- `capture_policy`: `warn|strict`
+
+Important V2.5 collection/evidence additions:
+
+- Collection source supports optional `url`, `query`, `rss`, `publisher`, `capture_mode`, `priority`.
+- Evidence rows may now include provenance and clustering fields used by replay and audit flows.
+
 Bundled templates:
 
 - Generic: `in/*.json`
@@ -146,6 +179,21 @@ python scripts/run_campaign.py `
   --min-chars-exec 2000 `
   --min-chars-analyst 5000 `
   --length-counting cjk_chars
+```
+
+V2.5 mixed-source campaign:
+
+```powershell
+python scripts/run_campaign.py `
+  --mission in/mission.json `
+  --scenario in/scenario_pack.json `
+  --actor-config in/actor_config.json `
+  --collection-plan in/collection_plan.json `
+  --out out/run_v25 `
+  --report-profile dual_layer `
+  --ach-profile full `
+  --narrative-mode event_cards `
+  --length-policy warn
 ```
 
 Quality verification:
@@ -179,6 +227,11 @@ Analysis and audit:
 - `key_judgments.json`
 - `sensitivity.json`
 - `evidence.json`
+- `source_capture_manifest.json`
+- `claim_registry.json`
+- `evidence_clusters.json`
+- `expert_review.json`
+- `adjudication_dissent.json`
 - `event_ledger.json`
 - `baseline_deviation_report.json`
 - `run_log.jsonl`
@@ -194,6 +247,8 @@ Replay bundle (`replay_bundle/`):
 - `turn_*_agent_log.json`
 - `turn_*_event_ledger.json`
 - `turn_*_story_cards.json`
+- `turn_*_source_capture_manifest.json`
+- `turn_*_expert_review.json`
 
 ## 9. Quality Gates (`verify_trace`)
 
@@ -204,6 +259,7 @@ Checks include:
 - ACH detail must include elimination trace and diagnosticity.
 - Event-to-evidence linkage must be complete (V2.3 path).
 - Reports must include actionable recommendations and trigger thresholds.
+- Live/hybrid evidence can trigger provenance warnings; `capture_policy=strict` upgrades missing provenance into a failing condition.
 
 Length policy:
 
@@ -226,16 +282,32 @@ Coverage highlights:
 - Story-card required field shape.
 - Baseline deviation scoring.
 - Semi-tactical casualty precision guardrail.
+- Hybrid/live evidence provenance and clustering.
+- AI panel review artifacts and report sections.
 - End-to-end pipeline and deterministic seed replay.
 
-## 11. CI
+## 11. Roadmap
+
+Near-term V2.5 outcome:
+
+- Live-seeded, replay-safe prototype is in place.
+- Multi-view AI review exists, but it is still bounded and heuristic.
+
+Planned next optimization steps:
+
+- `Mid-term`: replace curated/snapshot-style evidence entry with research-grade ingestion, de-duplication, and claim extraction.
+- `Mid-term`: deepen the AI review layer into real adversarial deliberation, calibration, and stronger dissent handling.
+- `Long-term`: introduce actor doctrine/resource models, escalation ladders, and branch-state campaign comparison instead of mostly heuristic turn progression.
+- `Long-term`: improve decision support density so reports compare COAs and signposts, not just describe pressure trajectories.
+
+## 12. CI
 
 GitHub Actions workflow: [`/.github/workflows/ci.yml`](./.github/workflows/ci.yml)
 
 - Python 3.10 / 3.11 matrix
 - Runs `python -m unittest discover -s tests -p "test_*.py"`
 
-## 12. References
+## 13. References
 
 - [SKILL.md](./SKILL.md)
 - [references/methodology.md](./references/methodology.md)
