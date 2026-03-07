@@ -4,9 +4,9 @@
 
 一個基於多Agent設計的戰略層 PMESII 兵推 Codex Skill 的測試專案。設計時參考RAND、CSIS等頂尖智庫的兵推模擬流程，並根據Agent以及OS資訊性質進行特化調整。本Skill之特點在於，主題推演將以策略回合制方式加以呈現，直至推演到定期(回合)並產生結果。每一回合都能回放、每個結論都能追到證據，方便研究團隊複核與重跑。
 
-## 0. V2.3 -> V2.5 改了什麼
+## 0. V2.5 優化說明
 
-V2.5 最大的改變，是不再把「只有來源標籤的合成證據」假裝成真正的 open-source evidence。
+V2.5 優先修正了「只有來源標籤的合成證據」假裝成真正的 open-source evidence。
 
 主改動：
 
@@ -17,11 +17,11 @@ V2.5 最大的改變，是不再把「只有來源標籤的合成證據」假裝
 - `Replay 強化`：turn packet 可保存 `captured_evidence`、`source_capture_manifest`、`claim_registry`、`evidence_clusters`，回放時不用再抓網路。
 - `新增 artifacts`：`source_capture_manifest.json`、`claim_registry.json`、`evidence_clusters.json`、`expert_review.json`、`adjudication_dissent.json`。
 
-V2.5 還不是什麼：
+V2.5 仍存在之限制，且未來未必修正
 
-- 不是完整 research-grade 的 OSINT ingestion platform。
-- 不是人類專家白隊的真正替代品。
-- 不是戰術級火力或毀傷模型。
+- 非完整 research-grade 的 OSINT ingestion platform。
+- 不使用人類專家白隊，未來仍以Agent替代。
+- 不是戰術級火力或毀傷模型。畢竟做的是PMESII，不是即時戰略。
 
 ## 1. 適用範圍
 
@@ -101,7 +101,7 @@ flowchart TD
 
 目前版本重點：
 
-- V2.3 基線屬於「可稽核參數化基線 + 來源層級先驗」。
+- V2.5 基線屬於「可稽核參數化基線 + 來源層級先驗」。
 - 不是完整 ORBAT 權威資料庫。
 - 可以跨 run 重用，也建議依研究需求定期覆蓋更新。
 
