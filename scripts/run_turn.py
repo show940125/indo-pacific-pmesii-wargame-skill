@@ -47,7 +47,16 @@ def main() -> None:
     out_path = Path(args.out)
     mission.setdefault("working_dir", str(out_path.parent))
     mission.setdefault("baseline_db_path", str(out_path.parent / "actor_baseline_db.sqlite"))
-    result = execute_turn(mission, scenario, actor_config, state, turn_id, seed, collection_plan)
+    result = execute_turn(
+        mission,
+        scenario,
+        actor_config,
+        state,
+        turn_id,
+        seed,
+        collection_plan,
+        existing_turn_packet=turn_packet if args.turn_packet else None,
+    )
 
     write_json(out_path, result.to_dict())
     print(f"Saved turn result: {out_path}")

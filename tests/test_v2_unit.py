@@ -13,13 +13,17 @@ from common import (
     TERMS_AND_PARAMETERS,
     _annotate_terms,
     _calc_ach_cell,
+    ai_expert_review_cell,
     attach_event_metadata_to_evidence,
     build_ach_matrix,
     build_turn_event_ledger,
+    collect_intel_bundle,
     compare_events_with_baseline,
     count_text_units,
     derive_key_judgments,
     ensure_actor_baseline_db,
+    render_analyst_report_markdown,
+    render_exec_report_markdown,
     turn_story_cards,
 )
 
@@ -253,6 +257,168 @@ class V2UnitTests(unittest.TestCase):
         cards = turn_story_cards(turn_result)
         serialized = " ".join(card["what_happened"] + card["cost_benefit"] for card in cards)
         self.assertNotRegex(serialized, r"\d+\s*(人|名)傷亡")
+
+    def test_hybrid_live_capture_preserves_provenance_and_clusters(self) -> None:
+        mission = dict(self.mission)
+        mission["evidence_mode"] = "hybrid"
+        mission["max_live_sources_per_turn"] = 2
+        mission["capture_policy"] = "warn"
+        tmp = Path(tempfile.mkdtemp(prefix="pmesii_v25_capture_"))
+        try:
+            sample = tmp / "feed.txt"
+            sample.write_text("軍事摩擦升高。外交窗口仍在。", encoding="utf-8")
+            bundle = collect_intel_bundle(
+                mission=mission,
+                scenario=self.scenario,
+                turn_id=1,
+                collection_plan={
+                    "sources": [
+                        {
+                            "name": "local_osint_feed",
+                            "tier": "public",
+                            "independence_group": "local_file",
+                            "url": sample.resolve().as_uri(),
+                            "publisher": "Local Monitor",
+                            "focus": "軍事摩擦",
+                            "capture_mode": "static",
+                            "priority": 1,
+                        }
+                    ]
+                },
+                seed=20260305,
+            )
+            self.assertTrue(bundle["source_capture_manifest"])
+            self.assertTrue(bundle["claim_registry"])
+            self.assertTrue(bundle["evidence_clusters"])
+            live_rows = [row for row in bundle["evidence"] if row.get("capture_mode") == "live_capture"]
+            self.assertTrue(live_rows)
+            for row in live_rows:
+                self.assertTrue(row.get("source_url"))
+                self.assertTrue(row.get("captured_at"))
+                self.assertTrue(row.get("excerpt"))
+                self.assertTrue(row.get("cluster_id"))
+                self.assertEqual(row.get("claim_extraction_method"), "sentence_focus_extract")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_ai_panel_review_produces_consensus_and_dissent(self) -> None:
+        mission = dict(self.mission)
+        mission["review_mode"] = "ai_panel"
+        turn_packet = {
+            "turn_id": 1,
+            "prior_state_hash": "abc",
+            "intel_digest": [{"evidence_id": "E1", "claim": "局部升級 交火 報復"}],
+            "constraints": ["public-source-only", "strategic-level"],
+            "tasking": {"white": "review"},
+        }
+        adjudication = {
+            "turn_id": 1,
+            "decision": "localized_escalation_risk",
+            "rule_hits": ["ROE_ESCALATION_THRESHOLD"],
+            "rule_fires": [],
+            "decision_rationale": ["military pressure elevated"],
+            "counterdeception_findings": [],
+            "uncertainty_notes": [],
+            "stochastic_seed": 20260305,
+            "override_note": "",
+            "evidence_ids": ["E1"],
+        }
+        review = ai_expert_review_cell(
+            mission=mission,
+            turn_packet=turn_packet,
+            evidence_rows=[
+                {
+                    "evidence_id": "E1",
+                    "source": "local_osint_feed",
+                    "source_family": "localmonitor",
+                    "claim": "局部升級 交火 報復",
+                    "capture_mode": "synthetic_fallback",
+                    "provenance_confidence": 0.42,
+                    "source_url": "file:///tmp/feed.txt",
+                }
+            ],
+            adjudication=adjudication,
+            event_ledger=[
+                {
+                    "event_id": "T01EV01",
+                    "event_type": "simulated_engagement",
+                    "probability": 0.79,
+                    "confidence": 0.66,
+                    "estimated_outcome": "局部摩擦升高",
+                }
+            ],
+            seed=20260305,
+        )
+        self.assertEqual(review["review_mode"], "ai_panel")
+        self.assertEqual(len(review["expert_packets"]), 4)
+        self.assertIn("panel_consensus", review)
+        self.assertIn("structured_dissent", review)
+        self.assertIn("confidence_adjustment", review)
+        self.assertTrue(review["review_trace_ids"])
+
+    def test_reports_include_ai_review_sections(self) -> None:
+        mission = dict(self.mission)
+        mission["review_mode"] = "ai_panel"
+        ach_detail = {"hypothesis_summaries": [], "turn_results": []}
+        turn_results = [
+            {
+                "turn_id": 1,
+                "state_after": {"P": 51, "M": 72, "E": 56, "S": 49, "I": 73, "Infra": 55},
+                "evidence": [{"evidence_id": "E1", "claim": "局部升級 交火 報復"}],
+                "event_ledger": [],
+                "adjudication": {
+                    "decision": "localized_escalation_risk",
+                    "rule_hits": ["ROE_ESCALATION_THRESHOLD"],
+                    "decision_rationale": ["military pressure elevated"],
+                    "panel_summary": "多數支持原裁決，但要求下調信心。",
+                    "expert_dissent": ["OSINT reviewer: source independence weak."],
+                    "evidence_insufficiency_warning": True,
+                },
+            }
+        ]
+        exec_text = render_exec_report_markdown(
+            mission=mission,
+            final_state={"P": 51, "M": 72, "E": 56, "S": 49, "I": 73, "Infra": 55},
+            indicators={"leading": [], "significant": [], "confirmatory": []},
+            key_judgments=[
+                {
+                    "claim": "局部升級風險上升",
+                    "probability_range": "高",
+                    "confidence_level": "中",
+                    "supporting_evidence_ids": ["E1"],
+                    "contradicting_evidence_ids": ["E2"],
+                }
+            ],
+            ach_detail=ach_detail,
+            turn_results=turn_results,
+        )
+        analyst_text = render_analyst_report_markdown(
+            mission=mission,
+            final_state={"P": 51, "M": 72, "E": 56, "S": 49, "I": 73, "Infra": 55},
+            indicators={"leading": [], "significant": [], "confirmatory": []},
+            key_judgments=[
+                {
+                    "claim": "局部升級風險上升",
+                    "probability_range": "高",
+                    "confidence_level": "中",
+                    "supporting_evidence_ids": ["E1"],
+                    "contradicting_evidence_ids": ["E2"],
+                    "supporting_event_ids": [],
+                    "contradicting_event_ids": [],
+                    "baseline_deviation_event_ids": [],
+                    "inferences": ["軍事與資訊壓力同步上行"],
+                    "counterevidence": ["外交窗口尚未完全關閉"],
+                    "assumption_breakpoints": ["若外交事件連兩回合升高則翻盤"],
+                }
+            ],
+            ach_detail={"hypothesis_summaries": []},
+            sensitivity={"results": []},
+            turn_results=turn_results,
+            story_cards_by_turn={1: []},
+        )
+        self.assertIn("本回合 AI 專家覆核結論", exec_text)
+        self.assertIn("主要分歧點", exec_text)
+        self.assertIn("panel consensus vs dissent", analyst_text)
 
 
 if __name__ == "__main__":

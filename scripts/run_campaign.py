@@ -9,6 +9,7 @@ from common import (
     build_ach_matrix,
     build_dashboard,
     build_report_metrics,
+    collect_quality_gate_warnings,
     derive_key_judgments,
     ensure_actor_baseline_db,
     evaluate_length_policy,
@@ -171,6 +172,11 @@ def main() -> None:
     story_cards_by_turn: dict[int, list[dict]] = {}
     baseline_deviation_rows: list[dict] = []
     event_rows: list[dict] = []
+    source_capture_manifest_rows: list[dict] = []
+    claim_registry_rows: list[dict] = []
+    evidence_cluster_rows: list[dict] = []
+    expert_review_rows: list[dict] = []
+    adjudication_dissent_rows: list[dict] = []
     last_indicators: dict = {"leading": [], "significant": [], "confirmatory": []}
 
     write_json(replay_dir / "turn_00_state.json", state)
@@ -189,12 +195,25 @@ def main() -> None:
         state = turn_result.state_after
         last_indicators = turn_result.indicators
         all_evidence.extend(turn_result.evidence)
+        source_capture_manifest_rows.extend(turn_result.source_capture_manifest)
+        claim_registry_rows.extend(turn_result.claim_registry)
+        evidence_cluster_rows.extend(turn_result.evidence_clusters)
+        expert_review_rows.append({"turn_id": turn_id, **turn_result.expert_review})
+        adjudication_dissent_rows.append(
+            {
+                "turn_id": turn_id,
+                "panel_summary": turn_result.adjudication.get("panel_summary", ""),
+                "structured_dissent": turn_result.adjudication_dissent,
+            }
+        )
 
         write_json(replay_dir / f"turn_{turn_id:02d}_turn_packet.json", turn_result.turn_packet)
         write_json(replay_dir / f"turn_{turn_id:02d}_result.json", turn_result.to_dict())
         write_json(replay_dir / f"turn_{turn_id:02d}_state.json", turn_result.state_after)
         write_json(replay_dir / f"turn_{turn_id:02d}_agent_log.json", turn_result.agent_log)
         write_json(replay_dir / f"turn_{turn_id:02d}_event_ledger.json", turn_result.event_ledger)
+        write_json(replay_dir / f"turn_{turn_id:02d}_source_capture_manifest.json", turn_result.source_capture_manifest)
+        write_json(replay_dir / f"turn_{turn_id:02d}_expert_review.json", turn_result.expert_review)
         event_rows.extend(turn_result.event_ledger)
         baseline_deviation_rows.extend(turn_result.baseline_deviations)
         turn_cards = turn_story_cards(turn_result)
@@ -239,7 +258,8 @@ def main() -> None:
     report_metrics = build_report_metrics(mission, report_exec, report_analyst)
     length_warnings, length_errors = evaluate_length_policy(mission, report_metrics)
     write_json(out_dir / "report_metrics.json", report_metrics)
-    write_json(out_dir / "quality_gate_warnings.json", {"warnings": length_warnings})
+    quality_warnings = length_warnings + collect_quality_gate_warnings(mission, all_evidence)
+    write_json(out_dir / "quality_gate_warnings.json", {"warnings": quality_warnings})
 
     quality_errors = verify_quality_gates(
         mission=mission,
@@ -269,6 +289,11 @@ def main() -> None:
     write_json(out_dir / "ach_detailed.json", ach_detailed)
     write_json(out_dir / "sensitivity.json", sensitivity)
     write_json(out_dir / "evidence.json", all_evidence)
+    write_json(out_dir / "source_capture_manifest.json", source_capture_manifest_rows)
+    write_json(out_dir / "claim_registry.json", claim_registry_rows)
+    write_json(out_dir / "evidence_clusters.json", evidence_cluster_rows)
+    write_json(out_dir / "expert_review.json", expert_review_rows)
+    write_json(out_dir / "adjudication_dissent.json", adjudication_dissent_rows)
     write_json(out_dir / "event_ledger.json", event_rows)
     write_json(out_dir / "key_judgments.json", key_judgments)
     write_json(
@@ -294,6 +319,11 @@ def main() -> None:
         "event_timeline_md": str((out_dir / "event_timeline.md").resolve()),
         "report_metrics_json": str((out_dir / "report_metrics.json").resolve()),
         "quality_gate_warnings_json": str((out_dir / "quality_gate_warnings.json").resolve()),
+        "source_capture_manifest_json": str((out_dir / "source_capture_manifest.json").resolve()),
+        "claim_registry_json": str((out_dir / "claim_registry.json").resolve()),
+        "evidence_clusters_json": str((out_dir / "evidence_clusters.json").resolve()),
+        "expert_review_json": str((out_dir / "expert_review.json").resolve()),
+        "adjudication_dissent_json": str((out_dir / "adjudication_dissent.json").resolve()),
         "baseline_deviation_report_json": str((out_dir / "baseline_deviation_report.json").resolve()),
         "event_ledger_json": str((out_dir / "event_ledger.json").resolve()),
         "actor_baseline_db": str((out_dir / "actor_baseline_db.sqlite").resolve()),
@@ -320,6 +350,8 @@ def main() -> None:
         "fidelity_guardrail": mission.get("fidelity_guardrail", "enabled"),
         "length_policy": mission.get("length_policy", "warn"),
         "length_counting": mission.get("length_counting", "cjk_chars"),
+        "evidence_mode": mission.get("evidence_mode", "hybrid"),
+        "review_mode": mission.get("review_mode", "ai_panel"),
     }
     write_json(out_dir / "run_summary.json", summary)
     print(json.dumps(summary, ensure_ascii=False, indent=2))

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import html
 import json
 import random
 import sqlite3
@@ -10,6 +11,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import re
 from typing import Any
+from urllib.parse import urlparse
+from urllib.request import Request, urlopen
 
 DIMENSIONS = ["P", "M", "E", "S", "I", "Infra"]
 PROBABILITY_BUCKETS = ["極低", "低", "中", "高", "極高"]
@@ -23,6 +26,16 @@ LENGTH_COUNTING_MODES = {"cjk_chars", "all_chars", "words"}
 BASELINE_MODES = {"public_auto"}
 EVENT_GRANULARITIES = {"semi_tactical"}
 FIDELITY_GUARDRAILS = {"enabled", "disabled"}
+EVIDENCE_MODES = {"synthetic", "hybrid", "live_limited"}
+REVIEW_MODES = {"none", "ai_panel"}
+CAPTURE_POLICIES = {"warn", "strict"}
+DEFAULT_EXPERT_PANEL_PROFILE = "v25_default"
+EXPERT_PANEL_ROLES = [
+    "Regional Strategist",
+    "Operational/Military Analyst",
+    "OSINT & Source-Vetting Skeptic",
+    "Legal/ROE & Escalation Reviewer",
+]
 SEMI_TACTICAL_EVENT_TYPES = [
     "military_movement",
     "simulated_engagement",
@@ -220,6 +233,11 @@ def _default_mission_controls(mission: dict[str, Any]) -> dict[str, Any]:
     mission.setdefault("min_chars_analyst", 5000)
     mission.setdefault("length_counting", "cjk_chars")
     mission.setdefault("strict_kj_threshold", 3)
+    mission.setdefault("evidence_mode", "hybrid")
+    mission.setdefault("review_mode", "ai_panel")
+    mission.setdefault("expert_panel_profile", DEFAULT_EXPERT_PANEL_PROFILE)
+    mission.setdefault("max_live_sources_per_turn", 2)
+    mission.setdefault("capture_policy", "warn")
     mission.setdefault("seed", 20260305)
     return mission
 
@@ -256,12 +274,20 @@ def validate_mission(mission: dict[str, Any]) -> None:
         raise ValueError(
             f"MissionSpec.length_counting must be one of: {', '.join(sorted(LENGTH_COUNTING_MODES))}"
         )
+    if mission["evidence_mode"] not in EVIDENCE_MODES:
+        raise ValueError(f"MissionSpec.evidence_mode must be one of: {', '.join(sorted(EVIDENCE_MODES))}")
+    if mission["review_mode"] not in REVIEW_MODES:
+        raise ValueError(f"MissionSpec.review_mode must be one of: {', '.join(sorted(REVIEW_MODES))}")
+    if mission["capture_policy"] not in CAPTURE_POLICIES:
+        raise ValueError(f"MissionSpec.capture_policy must be one of: {', '.join(sorted(CAPTURE_POLICIES))}")
     if int(mission["min_chars_exec"]) < 500:
         raise ValueError("MissionSpec.min_chars_exec must be >= 500")
     if int(mission["min_chars_analyst"]) < 1000:
         raise ValueError("MissionSpec.min_chars_analyst must be >= 1000")
     if int(mission["strict_kj_threshold"]) < 2:
         raise ValueError("MissionSpec.strict_kj_threshold must be >= 2")
+    if int(mission["max_live_sources_per_turn"]) < 0:
+        raise ValueError("MissionSpec.max_live_sources_per_turn must be >= 0")
 
 
 def validate_scenario(scenario: dict[str, Any]) -> None:
@@ -497,6 +523,142 @@ def _calc_relevance_to_hypotheses(claim: str, hypotheses: list[dict[str, Any]]) 
         matched = [hypothesis["id"] for hypothesis in hypotheses]
     return matched
 
+
+def _normalize_claim_text(text: str) -> str:
+    lowered = text.strip().lower()
+    lowered = re.sub(r"<[^>]+>", " ", lowered)
+    lowered = html.unescape(lowered)
+    lowered = re.sub(r"\s+", " ", lowered)
+    lowered = re.sub(r"[^\w\u4e00-\u9fff]+", "", lowered)
+    return lowered
+
+
+def _infer_source_family(source: str, source_url: str = "", publisher: str = "") -> str:
+    parsed = urlparse(source_url) if source_url else None
+    if parsed and parsed.hostname:
+        host = str(parsed.hostname).lower()
+        if host.startswith("www."):
+            host = host[4:]
+        return host
+    if publisher:
+        return re.sub(r"[^a-z0-9]+", "", publisher.lower()) or "unknown_family"
+    return re.sub(r"[^a-z0-9]+", "", source.lower()) or "unknown_family"
+
+
+def _clean_capture_text(raw_text: str) -> str:
+    cleaned = re.sub(r"<script.*?</script>", " ", raw_text, flags=re.IGNORECASE | re.DOTALL)
+    cleaned = re.sub(r"<style.*?</style>", " ", cleaned, flags=re.IGNORECASE | re.DOTALL)
+    cleaned = re.sub(r"<[^>]+>", " ", cleaned)
+    cleaned = html.unescape(cleaned)
+    return re.sub(r"\s+", " ", cleaned).strip()
+
+
+def _extract_claims_from_text(raw_text: str, focus: str, limit: int = 2) -> list[str]:
+    cleaned = _clean_capture_text(raw_text)
+    if not cleaned:
+        return [focus or "captured_open_source_signal"]
+    sentences = [row.strip() for row in re.split(r"[。！？\n]+", cleaned) if row and len(row.strip()) >= 4]
+    focus_tokens = [token for token in re.split(r"[\s,/_-]+", focus) if len(token) >= 2]
+    focused = [sentence for sentence in sentences if focus_tokens and any(token in sentence for token in focus_tokens)]
+    selected = focused[:limit] or sentences[:limit]
+    return selected or [cleaned[:120]]
+
+
+def _capture_open_source(source: dict[str, Any], timeout: int = 6) -> dict[str, Any]:
+    source_url = str(source.get("url") or source.get("rss") or "").strip()
+    captured_at = now_iso()
+    if not source_url:
+        return {
+            "capture_status": "not_requested",
+            "source_url": "",
+            "captured_at": captured_at,
+            "excerpt": "",
+            "content_hash": "",
+            "content_text": "",
+            "published_at": "",
+            "error": "no_live_endpoint",
+        }
+    try:
+        parsed = urlparse(source_url)
+        if parsed.scheme == "file":
+            raw_path = parsed.path
+            if re.match(r"^/[A-Za-z]:", raw_path):
+                raw_path = raw_path[1:]
+            file_path = Path(raw_path)
+            payload = file_path.read_text(encoding="utf-8")
+            published_at = datetime.fromtimestamp(file_path.stat().st_mtime, tz=timezone.utc).replace(microsecond=0).isoformat()
+        else:
+            request = Request(source_url, headers={"User-Agent": "indo-pacific-pmesii-wargame/2.5"})
+            with urlopen(request, timeout=timeout) as response:
+                raw_bytes = response.read(16384)
+                payload = raw_bytes.decode("utf-8", errors="ignore")
+                published_at = response.headers.get("Date", "")
+        cleaned = _clean_capture_text(payload)
+        return {
+            "capture_status": "live_captured",
+            "source_url": source_url,
+            "captured_at": captured_at,
+            "excerpt": cleaned[:240],
+            "content_hash": hashlib.sha256(payload.encode("utf-8", errors="ignore")).hexdigest(),
+            "content_text": payload,
+            "published_at": published_at,
+            "error": "",
+        }
+    except Exception as exc:
+        return {
+            "capture_status": "live_failed",
+            "source_url": source_url,
+            "captured_at": captured_at,
+            "excerpt": f"capture_failed:{str(exc)[:180]}",
+            "content_hash": "",
+            "content_text": "",
+            "published_at": "",
+            "error": str(exc)[:240],
+        }
+
+
+def _cluster_evidence_rows(
+    evidence_rows: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in evidence_rows:
+        key = _normalize_claim_text(str(row.get("claim", ""))) or f"uncategorized:{row.get('source', 'unknown')}"
+        grouped.setdefault(key, []).append(row)
+
+    enriched: list[dict[str, Any]] = []
+    claim_registry: list[dict[str, Any]] = []
+    evidence_clusters: list[dict[str, Any]] = []
+    for idx, (_, rows) in enumerate(grouped.items(), start=1):
+        cluster_id = f"CLM{idx:03d}"
+        evidence_ids = [str(row.get("evidence_id", "")) for row in rows]
+        source_families = sorted({str(row.get("source_family", "unknown_family")) for row in rows})
+        canonical_claim = str(rows[0].get("claim", ""))
+        collision_count = max(0, len({str(row.get('claim', '')) for row in rows}) - 1)
+        for row in rows:
+            enriched.append({**row, "cluster_id": cluster_id})
+        claim_registry.append(
+            {
+                "claim_id": cluster_id,
+                "cluster_id": cluster_id,
+                "canonical_claim": canonical_claim,
+                "evidence_ids": evidence_ids,
+                "source_families": source_families,
+                "collision_count": collision_count,
+            }
+        )
+        evidence_clusters.append(
+            {
+                "cluster_id": cluster_id,
+                "canonical_claim": canonical_claim,
+                "evidence_ids": evidence_ids,
+                "source_families": source_families,
+                "duplicate_claim_count": max(0, len(rows) - 1),
+                "claim_collision": collision_count > 0,
+            }
+        )
+    enriched.sort(key=lambda row: str(row.get("evidence_id", "")))
+    return enriched, claim_registry, evidence_clusters
+
 def _build_evidence_item(
     evidence_id: str,
     timestamp: str,
@@ -506,6 +668,7 @@ def _build_evidence_item(
     claim: str,
     credibility_hint: float,
     hypotheses: list[dict[str, Any]],
+    metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     tier_weights = {"official": 0.9, "public": 0.75, "mixed": 0.6, "social": 0.45}
     source_weight = tier_weights.get(source_tier.lower(), 0.6)
@@ -513,7 +676,7 @@ def _build_evidence_item(
     independence = 0.95 if "official" in independence_group else 0.75
     recency = 0.8
     relevance = _calc_relevance_to_hypotheses(claim, hypotheses)
-    return {
+    row = {
         "evidence_id": evidence_id,
         "timestamp": timestamp,
         "source": source,
@@ -526,33 +689,137 @@ def _build_evidence_item(
         "recency_score": recency,
         "relevance_to_hypotheses": relevance,
     }
+    if metadata:
+        row.update({key: value for key, value in metadata.items() if value not in {None, ""}})
+    return row
 
 
-def collect_intel(
+def collect_intel_bundle(
     mission: dict[str, Any],
     scenario: dict[str, Any],
     turn_id: int,
     collection_plan: dict[str, Any] | None,
     seed: int,
-) -> list[dict[str, Any]]:
+) -> dict[str, Any]:
     rng = make_rng(seed, turn_id, "intel")
     hypotheses = _infer_hypotheses(mission)
     day = date_from_window(mission, turn_id)
+    evidence_mode = str(mission.get("evidence_mode", "hybrid"))
+    live_budget = int(mission.get("max_live_sources_per_turn", 2))
     evidence: list[dict[str, Any]] = []
+    source_capture_manifest: list[dict[str, Any]] = []
+    live_used = 0
 
-    sources = (collection_plan or {}).get("sources", [])
+    sources = sorted((collection_plan or {}).get("sources", []), key=lambda row: int(row.get("priority", 999)))
     for idx, source in enumerate(sources[:6], start=1):
-        evidence.append(
-            _build_evidence_item(
-                evidence_id=f"E{turn_id:02d}S{idx:02d}",
-                timestamp=day,
-                source=source.get("name", f"source_{idx}"),
-                source_tier=source.get("tier", "public"),
-                independence_group=source.get("independence_group", f"group_{idx}"),
-                claim=source.get("focus", "regional_signal_update"),
-                credibility_hint=rng.uniform(0.45, 0.92),
-                hypotheses=hypotheses,
+        source_name = str(source.get("name", f"source_{idx}"))
+        source_url = str(source.get("url") or source.get("rss") or "")
+        publisher = str(source.get("publisher", source_name))
+        source_family = _infer_source_family(source_name, source_url, publisher)
+        should_attempt_live = evidence_mode != "synthetic" and bool(source_url) and live_used < live_budget
+        capture = {
+            "capture_status": "not_requested",
+            "source_url": source_url,
+            "captured_at": now_iso(),
+            "excerpt": "",
+            "content_hash": "",
+            "content_text": "",
+            "published_at": "",
+            "error": "",
+        }
+
+        if should_attempt_live:
+            capture = _capture_open_source(source)
+            if capture["capture_status"] == "live_captured":
+                live_used += 1
+                claims = _extract_claims_from_text(str(capture["content_text"]), str(source.get("focus", "")))
+                for claim_idx, claim in enumerate(claims, start=1):
+                    evidence.append(
+                        _build_evidence_item(
+                            evidence_id=f"E{turn_id:02d}S{idx:02d}L{claim_idx:02d}",
+                            timestamp=day,
+                            source=source_name,
+                            source_tier=str(source.get("tier", "public")),
+                            independence_group=str(source.get("independence_group", f"group_{idx}")),
+                            claim=claim,
+                            credibility_hint=rng.uniform(0.55, 0.92),
+                            hypotheses=hypotheses,
+                            metadata={
+                                "source_url": capture["source_url"],
+                                "publisher": publisher,
+                                "published_at": capture["published_at"],
+                                "captured_at": capture["captured_at"],
+                                "excerpt": capture["excerpt"],
+                                "capture_mode": "live_capture",
+                                "claim_extraction_method": "sentence_focus_extract",
+                                "source_family": source_family,
+                                "provenance_confidence": 0.9,
+                            },
+                        )
+                    )
+            else:
+                evidence.append(
+                    _build_evidence_item(
+                        evidence_id=f"E{turn_id:02d}S{idx:02d}F01",
+                        timestamp=day,
+                        source=source_name,
+                        source_tier=str(source.get("tier", "public")),
+                        independence_group=str(source.get("independence_group", f"group_{idx}")),
+                        claim=str(source.get("focus", "regional_signal_update")),
+                        credibility_hint=rng.uniform(0.42, 0.76),
+                        hypotheses=hypotheses,
+                        metadata={
+                            "source_url": capture["source_url"],
+                            "publisher": publisher,
+                            "captured_at": capture["captured_at"],
+                            "excerpt": capture["excerpt"],
+                            "capture_mode": "synthetic_fallback",
+                            "claim_extraction_method": "focus_seeded_fallback",
+                            "source_family": source_family,
+                            "provenance_confidence": 0.45,
+                            "fallback_reason": capture["error"] or capture["capture_status"],
+                        },
+                    )
+                )
+        else:
+            evidence.append(
+                _build_evidence_item(
+                    evidence_id=f"E{turn_id:02d}S{idx:02d}",
+                    timestamp=day,
+                    source=source_name,
+                    source_tier=str(source.get("tier", "public")),
+                    independence_group=str(source.get("independence_group", f"group_{idx}")),
+                    claim=str(source.get("focus", "regional_signal_update")),
+                    credibility_hint=rng.uniform(0.45, 0.92),
+                    hypotheses=hypotheses,
+                    metadata={
+                        "source_url": source_url,
+                        "publisher": publisher,
+                        "captured_at": capture["captured_at"] if source_url else "",
+                        "excerpt": str(source.get("focus", "regional_signal_update")),
+                        "capture_mode": "synthetic",
+                        "claim_extraction_method": "focus_seeded_template",
+                        "source_family": source_family,
+                        "provenance_confidence": 0.35 if source_url else 0.3,
+                    },
+                )
             )
+        source_capture_manifest.append(
+            {
+                "turn_id": turn_id,
+                "source_name": source_name,
+                "publisher": publisher,
+                "source_url": capture["source_url"] or source_url,
+                "capture_status": capture["capture_status"],
+                "capture_mode": str(source.get("capture_mode", "static")),
+                "requested_evidence_mode": evidence_mode,
+                "captured_at": capture["captured_at"],
+                "published_at": capture["published_at"],
+                "excerpt": capture["excerpt"] or str(source.get("focus", ""))[:240],
+                "content_hash": capture["content_hash"],
+                "fallback_used": capture["capture_status"] == "live_failed",
+                "error": capture["error"],
+            }
         )
 
     for idx, shock in enumerate(scenario.get("shock_library", []), start=1):
@@ -569,9 +836,32 @@ def collect_intel(
                     claim=shock.get("title", "scenario_shock_event"),
                     credibility_hint=rng.uniform(0.4, 0.88),
                     hypotheses=hypotheses,
+                    metadata={
+                        "capture_mode": "synthetic",
+                        "claim_extraction_method": "scenario_shock",
+                        "source_family": _infer_source_family(str(shock.get("source", "scenario-shock"))),
+                        "provenance_confidence": 0.4,
+                    },
                 )
             )
-    return evidence
+
+    clustered_rows, claim_registry, evidence_clusters = _cluster_evidence_rows(evidence)
+    return {
+        "evidence": clustered_rows,
+        "source_capture_manifest": source_capture_manifest,
+        "claim_registry": claim_registry,
+        "evidence_clusters": evidence_clusters,
+    }
+
+
+def collect_intel(
+    mission: dict[str, Any],
+    scenario: dict[str, Any],
+    turn_id: int,
+    collection_plan: dict[str, Any] | None,
+    seed: int,
+) -> list[dict[str, Any]]:
+    return collect_intel_bundle(mission, scenario, turn_id, collection_plan, seed)["evidence"]
 
 
 def source_vetting(evidence_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -582,12 +872,28 @@ def source_vetting(evidence_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         recency = float(row.get("recency_score", 0.6))
         credibility = round((reliability * 0.5) + (independence * 0.25) + (recency * 0.25), 3)
         flagged = credibility < 0.48
-        vetted.append({**row, "credibility_score": credibility, "flagged": flagged})
+        provenance_required = str(row.get("capture_mode", "synthetic")) in {"live_capture", "synthetic_fallback"}
+        missing_provenance = [
+            field
+            for field in ["source_url", "captured_at", "excerpt"]
+            if provenance_required and not row.get(field)
+        ]
+        vetted.append(
+            {
+                **row,
+                "credibility_score": credibility,
+                "flagged": flagged,
+                "provenance_complete": not missing_provenance,
+                "provenance_warnings": missing_provenance,
+            }
+        )
     return vetted
 
 
 def fuse_evidence(vetted_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [row for row in vetted_rows if not row.get("flagged", False)]
+    fused = [row for row in vetted_rows if not row.get("flagged", False)]
+    clustered_rows, _, _ = _cluster_evidence_rows(fused)
+    return clustered_rows
 
 
 def generate_subagent_actions(
@@ -724,6 +1030,8 @@ def build_turn_event_ledger(
         assumption_slice: list[str],
     ) -> dict[str, Any]:
         evidence_ids = [str(row.get("evidence_id", "")) for row in evidence_slice if row.get("evidence_id")]
+        if not evidence_ids:
+            evidence_ids = [str(row.get("evidence_id", "")) for row in evidence_rows[:2] if row.get("evidence_id")]
         return {
             "event_id": f"T{turn_id:02d}EV{idx:02d}",
             "turn_id": turn_id,
@@ -1112,6 +1420,163 @@ def adjudicate_turn(
         },
         next_state,
     )
+
+
+def _build_expert_review_packet(
+    expert_role: str,
+    evidence_rows: list[dict[str, Any]],
+    adjudication: dict[str, Any],
+    event_ledger: list[dict[str, Any]],
+) -> dict[str, Any]:
+    live_count = sum(1 for row in evidence_rows if str(row.get("capture_mode", "")) == "live_capture")
+    fallback_count = sum(1 for row in evidence_rows if str(row.get("capture_mode", "")) == "synthetic_fallback")
+    source_families = {str(row.get("source_family", "unknown_family")) for row in evidence_rows}
+    risk_flags: list[str] = []
+    rationale: list[str] = []
+    dissent_reason = ""
+    confidence_adjustment = 0.0
+    judgment = "support"
+
+    if expert_role == "Regional Strategist":
+        rationale.append(f"區域節奏判讀維持 `{adjudication.get('decision', '')}`，但需緊盯 M/I 聯動。")
+        if live_count == 0:
+            confidence_adjustment -= 0.05
+            risk_flags.append("no_live_support")
+            judgment = "qualified_support"
+    elif expert_role == "Operational/Military Analyst":
+        hot_events = [
+            row for row in event_ledger
+            if row.get("event_type") in {"simulated_engagement", "military_movement"} and float(row.get("probability", 0.0)) >= 0.65
+        ]
+        rationale.append(f"高壓軍事情境事件數={len(hot_events)}，與裁決方向一致。")
+        if not hot_events:
+            confidence_adjustment -= 0.04
+            judgment = "qualified_support"
+            risk_flags.append("thin_operational_signal")
+    elif expert_role == "OSINT & Source-Vetting Skeptic":
+        rationale.append(f"來源家族數={len(source_families)}，fallback 筆數={fallback_count}。")
+        if len(source_families) < 2 or fallback_count > 0:
+            confidence_adjustment -= 0.12
+            judgment = "challenge"
+            risk_flags.extend(["source_independence_weak", "fallback_dependency"])
+            dissent_reason = "來源獨立性不足，且存在 fallback 依賴。"
+    elif expert_role == "Legal/ROE & Escalation Reviewer":
+        rationale.append(f"規則命中數={len(adjudication.get('rule_hits', []))}，需保留升級門檻警示。")
+        if adjudication.get("decision") == "localized_escalation_risk" and not adjudication.get("rule_hits"):
+            confidence_adjustment -= 0.05
+            judgment = "qualified_support"
+            risk_flags.append("roe_signal_thin")
+
+    return {
+        "expert_role": expert_role,
+        "judgment_on_decision": judgment,
+        "source_risk_flags": sorted(set(risk_flags)),
+        "confidence_adjustment": round(confidence_adjustment, 3),
+        "recommended_rationale": rationale,
+        "dissent_reason": dissent_reason,
+    }
+
+
+def ai_expert_review_cell(
+    mission: dict[str, Any],
+    turn_packet: dict[str, Any],
+    evidence_rows: list[dict[str, Any]],
+    adjudication: dict[str, Any],
+    event_ledger: list[dict[str, Any]],
+    seed: int,
+) -> dict[str, Any]:
+    review_mode = str(mission.get("review_mode", "ai_panel"))
+    if review_mode != "ai_panel":
+        return {
+            "review_mode": review_mode,
+            "expert_panel_profile": mission.get("expert_panel_profile", DEFAULT_EXPERT_PANEL_PROFILE),
+            "expert_packets": [],
+            "panel_consensus": "review_disabled",
+            "structured_dissent": [],
+            "confidence_adjustment": 0.0,
+            "source_risk_recommendation": [],
+            "adjudication_adjustment_recommendation": [],
+            "panel_summary": "AI panel disabled.",
+            "review_trace_ids": [],
+        }
+
+    expert_packets = [
+        _build_expert_review_packet(role, evidence_rows, adjudication, event_ledger)
+        for role in EXPERT_PANEL_ROLES
+    ]
+    support_votes = sum(1 for row in expert_packets if row["judgment_on_decision"] == "support")
+    challenge_votes = sum(1 for row in expert_packets if row["judgment_on_decision"] == "challenge")
+    if challenge_votes >= 2:
+        panel_consensus = "qualified_support_with_material_dissent"
+    elif support_votes >= 3:
+        panel_consensus = "support"
+    else:
+        panel_consensus = "qualified_support"
+    structured_dissent = [
+        {
+            "expert_role": row["expert_role"],
+            "dissent_reason": row["dissent_reason"],
+            "source_risk_flags": row["source_risk_flags"],
+        }
+        for row in expert_packets
+        if row["judgment_on_decision"] == "challenge" or row["dissent_reason"]
+    ]
+    confidence_adjustment = round(sum(float(row["confidence_adjustment"]) for row in expert_packets), 3)
+    source_risk_recommendation = sorted(
+        {
+            flag
+            for row in expert_packets
+            for flag in row.get("source_risk_flags", [])
+        }
+    )
+    adjustment_recommendation: list[str] = []
+    if confidence_adjustment < 0:
+        adjustment_recommendation.append("downgrade_confidence")
+    if source_risk_recommendation:
+        adjustment_recommendation.append("require_evidence_insufficiency_warning")
+    panel_summary = (
+        f"panel_consensus={panel_consensus}；votes={support_votes} support / {challenge_votes} challenge；"
+        f"confidence_adjustment={confidence_adjustment}。"
+    )
+    return {
+        "review_mode": review_mode,
+        "expert_panel_profile": mission.get("expert_panel_profile", DEFAULT_EXPERT_PANEL_PROFILE),
+        "expert_packets": expert_packets,
+        "panel_consensus": panel_consensus,
+        "structured_dissent": structured_dissent,
+        "confidence_adjustment": confidence_adjustment,
+        "source_risk_recommendation": source_risk_recommendation,
+        "adjudication_adjustment_recommendation": adjustment_recommendation,
+        "panel_summary": panel_summary,
+        "review_trace_ids": [
+            f"T{int(turn_packet.get('turn_id', 0)):02d}-{row['expert_role'].split()[0].lower()}"
+            for row in expert_packets
+        ],
+    }
+
+
+def apply_ai_review_to_adjudication(adjudication: dict[str, Any], review: dict[str, Any]) -> dict[str, Any]:
+    updated = dict(adjudication)
+    updated["review_mode"] = review.get("review_mode", "none")
+    updated["expert_panel_votes"] = review.get("expert_packets", [])
+    updated["expert_dissent"] = review.get("structured_dissent", [])
+    updated["panel_summary"] = review.get("panel_summary", "")
+    updated["review_trace_ids"] = review.get("review_trace_ids", [])
+    updated["confidence_adjustment"] = review.get("confidence_adjustment", 0.0)
+    updated["evidence_insufficiency_warning"] = "require_evidence_insufficiency_warning" in review.get(
+        "adjudication_adjustment_recommendation", []
+    )
+    if updated["panel_summary"]:
+        updated["decision_rationale"] = list(updated.get("decision_rationale", [])) + [updated["panel_summary"]]
+    if review.get("confidence_adjustment", 0.0) < 0:
+        updated["uncertainty_notes"] = list(updated.get("uncertainty_notes", [])) + [
+            f"AI panel 下調信心 {review.get('confidence_adjustment', 0.0)}，主因為來源鏈/分歧風險。"
+        ]
+    if updated["evidence_insufficiency_warning"]:
+        updated["uncertainty_notes"] = list(updated.get("uncertainty_notes", [])) + [
+            "AI panel 要求標記證據不足，不改 state transition，但限制判讀自信度。"
+        ]
+    return updated
 
 
 def indicator_from_state(state: dict[str, float]) -> dict[str, Any]:
@@ -2122,6 +2587,30 @@ def render_exec_report_markdown(
                 f"主要證據={','.join(row.get('evidence_id', '') for row in evidence_rows[:3])}。"
             )
     if resolved_turns:
+        lines.extend(["", "## 本回合 AI 專家覆核結論"])
+        for result in resolved_turns[: min(8, len(resolved_turns))]:
+            turn_id = int(_read_turn_value(result, "turn_id") or 0)
+            adjudication = _read_turn_value(result, "adjudication") or {}
+            summary = adjudication.get("panel_summary", "未啟用 AI panel 覆核。")
+            downgrade = "；已標記證據不足降級" if adjudication.get("evidence_insufficiency_warning") else ""
+            lines.append(f"- Turn {turn_id}: {summary}{downgrade}")
+        lines.extend(["", "## 主要分歧點"])
+        dissent_found = False
+        for result in resolved_turns[: min(8, len(resolved_turns))]:
+            turn_id = int(_read_turn_value(result, "turn_id") or 0)
+            adjudication = _read_turn_value(result, "adjudication") or {}
+            for dissent in adjudication.get("expert_dissent", [])[:3]:
+                dissent_found = True
+                if isinstance(dissent, dict):
+                    label = dissent.get("expert_role", "AI reviewer")
+                    reason = dissent.get("dissent_reason", "無實質分歧說明")
+                else:
+                    label = "AI reviewer"
+                    reason = str(dissent)
+                lines.append(f"- Turn {turn_id}: {label} -> {reason}。")
+        if not dissent_found:
+            lines.append("- 多數回合無實質反對票，panel 主要要求把來源風險與信心調整寫清楚。")
+    if resolved_turns:
         lines.extend(["", "## 本回合三大具體事件（事件->風險門檻->行動建議）"])
         for result in resolved_turns[: min(8, len(resolved_turns))]:
             turn_id = int(_read_turn_value(result, "turn_id") or 0)
@@ -2279,6 +2768,18 @@ def render_analyst_report_markdown(
         lines.append(f"- 規則觸發: {', '.join(adjudication.get('rule_hits', []))}")
         lines.append(f"- 主要證據: {', '.join(row.get('evidence_id', '') for row in evidence_rows[:4])}")
         lines.append(f"- 狀態變化: before={state_before} -> after={state_after}")
+        lines.append("#### panel consensus vs dissent")
+        lines.append(f"- panel_summary: {adjudication.get('panel_summary', '未啟用 AI panel 覆核')}")
+        dissent_rows = [
+            row.get("dissent_reason", "") if isinstance(row, dict) else str(row)
+            for row in adjudication.get("expert_dissent", [])
+        ]
+        lines.append(
+            f"- expert_dissent: {', '.join(dissent_rows) or '無'}"
+        )
+        lines.append(
+            f"- evidence_insufficiency_warning: {'是' if adjudication.get('evidence_insufficiency_warning') else '否'}"
+        )
         event_ledger = _read_turn_value(result, "event_ledger") or []
         lines.append("#### 事件序列")
         for event in event_ledger[:6]:
@@ -2381,6 +2882,25 @@ def _probability_confidence_aligned(probability: str, confidence: str) -> bool:
     return True
 
 
+def collect_quality_gate_warnings(
+    mission: dict[str, Any],
+    evidence_rows: list[dict[str, Any]],
+) -> list[str]:
+    warnings: list[str] = []
+    if str(mission.get("evidence_mode", "hybrid")) == "synthetic":
+        return warnings
+    for row in evidence_rows:
+        capture_mode = str(row.get("capture_mode", "synthetic"))
+        if capture_mode not in {"live_capture", "synthetic_fallback"}:
+            continue
+        missing = [field for field in ["source_url", "captured_at", "excerpt"] if not row.get(field)]
+        if missing:
+            warnings.append(
+                f"Evidence {row.get('evidence_id', 'UNKNOWN')} missing provenance fields: {', '.join(missing)}."
+            )
+    return warnings
+
+
 def verify_quality_gates(
     mission: dict[str, Any],
     evidence_rows: list[dict[str, Any]],
@@ -2396,6 +2916,10 @@ def verify_quality_gates(
     strict_threshold = int(mission.get("strict_kj_threshold", 3))
     start = datetime.fromisoformat(mission["time_window"]["start"]).replace(tzinfo=timezone.utc)
     end = datetime.fromisoformat(mission["time_window"]["end"]).replace(tzinfo=timezone.utc)
+
+    for warning in collect_quality_gate_warnings(mission, evidence_rows):
+        if str(mission.get("capture_policy", "warn")) == "strict":
+            errors.append(warning)
 
     for idx, judgment in enumerate(key_judgments, start=1):
         evidence_ids = list(dict.fromkeys(judgment.get("evidence_ids", [])))
@@ -2511,6 +3035,11 @@ def export_schemas(target_dir: str | Path) -> dict[str, Any]:
                 "min_chars_analyst": {"type": "integer"},
                 "length_counting": {"type": "string", "enum": sorted(LENGTH_COUNTING_MODES)},
                 "strict_kj_threshold": {"type": "integer"},
+                "evidence_mode": {"type": "string", "enum": sorted(EVIDENCE_MODES)},
+                "review_mode": {"type": "string", "enum": sorted(REVIEW_MODES)},
+                "expert_panel_profile": {"type": "string"},
+                "max_live_sources_per_turn": {"type": "integer"},
+                "capture_policy": {"type": "string", "enum": sorted(CAPTURE_POLICIES)},
             },
         },
         "ScenarioPack": {
@@ -2574,6 +3103,11 @@ def export_schemas(target_dir: str | Path) -> dict[str, Any]:
                 "stochastic_seed": {"type": "integer"},
                 "override_note": {"type": "string"},
                 "evidence_ids": {"type": "array", "items": {"type": "string"}},
+                "review_mode": {"type": "string"},
+                "expert_panel_votes": {"type": "array", "items": {"type": "object"}},
+                "expert_dissent": {"type": "array", "items": {"type": "object"}},
+                "panel_summary": {"type": "string"},
+                "review_trace_ids": {"type": "array", "items": {"type": "string"}},
             },
         },
         "EvidenceItem": {
@@ -2601,6 +3135,35 @@ def export_schemas(target_dir: str | Path) -> dict[str, Any]:
                 "independence_score": {"type": "number"},
                 "recency_score": {"type": "number"},
                 "relevance_to_hypotheses": {"type": "array", "items": {"type": "string"}},
+                "source_url": {"type": "string"},
+                "publisher": {"type": "string"},
+                "published_at": {"type": "string"},
+                "captured_at": {"type": "string"},
+                "excerpt": {"type": "string"},
+                "capture_mode": {"type": "string"},
+                "claim_extraction_method": {"type": "string"},
+                "source_family": {"type": "string"},
+                "cluster_id": {"type": "string"},
+                "provenance_confidence": {"type": "number"},
+            },
+        },
+        "ExpertReviewPacket": {
+            "type": "object",
+            "required": [
+                "expert_role",
+                "judgment_on_decision",
+                "source_risk_flags",
+                "confidence_adjustment",
+                "recommended_rationale",
+                "dissent_reason",
+            ],
+            "properties": {
+                "expert_role": {"type": "string"},
+                "judgment_on_decision": {"type": "string"},
+                "source_risk_flags": {"type": "array", "items": {"type": "string"}},
+                "confidence_adjustment": {"type": "number"},
+                "recommended_rationale": {"type": "array", "items": {"type": "string"}},
+                "dissent_reason": {"type": "string"},
             },
         },
         "ACHDetailed": {
@@ -2727,6 +3290,11 @@ def export_schemas(target_dir: str | Path) -> dict[str, Any]:
                 "report_analyst_md": {"type": "string"},
                 "report_metrics_json": {"type": "string"},
                 "quality_gate_warnings_json": {"type": "string"},
+                "source_capture_manifest_json": {"type": "string"},
+                "claim_registry_json": {"type": "string"},
+                "evidence_clusters_json": {"type": "string"},
+                "expert_review_json": {"type": "string"},
+                "adjudication_dissent_json": {"type": "string"},
                 "dashboard_json": {"type": "string"},
                 "ach_json": {"type": "string"},
                 "ach_detailed_json": {"type": "string"},
@@ -2753,9 +3321,14 @@ class TurnResult:
     state_after: dict[str, float]
     indicators: dict[str, Any]
     evidence: list[dict[str, Any]]
+    source_capture_manifest: list[dict[str, Any]]
+    claim_registry: list[dict[str, Any]]
+    evidence_clusters: list[dict[str, Any]]
     event_ledger: list[dict[str, Any]]
     baseline_deviations: list[dict[str, Any]]
     baseline_deviation_score: float
+    expert_review: dict[str, Any]
+    adjudication_dissent: list[dict[str, Any]]
     agent_log: dict[str, Any]
 
     def to_dict(self) -> dict[str, Any]:
@@ -2769,9 +3342,14 @@ class TurnResult:
             "state_after": self.state_after,
             "indicators": self.indicators,
             "evidence": self.evidence,
+            "source_capture_manifest": self.source_capture_manifest,
+            "claim_registry": self.claim_registry,
+            "evidence_clusters": self.evidence_clusters,
             "event_ledger": self.event_ledger,
             "baseline_deviations": self.baseline_deviations,
             "baseline_deviation_score": self.baseline_deviation_score,
+            "expert_review": self.expert_review,
+            "adjudication_dissent": self.adjudication_dissent,
             "agent_log": self.agent_log,
         }
 
@@ -2784,15 +3362,27 @@ def execute_turn(
     turn_id: int,
     seed: int,
     collection_plan: dict[str, Any] | None = None,
+    existing_turn_packet: dict[str, Any] | None = None,
 ) -> TurnResult:
     prior_hash = stable_hash(state)
     baseline_db_path = mission.get("baseline_db_path") or str(
         Path(mission.get("working_dir", ".")) / "actor_baseline_db.sqlite"
     )
     ensure_actor_baseline_db(baseline_db_path, mission, collection_plan)
-    raw_evidence = collect_intel(mission, scenario, turn_id, collection_plan, seed)
+    if existing_turn_packet and existing_turn_packet.get("captured_evidence"):
+        raw_evidence = list(existing_turn_packet.get("captured_evidence", []))
+        source_capture_manifest = list(existing_turn_packet.get("source_capture_manifest", []))
+        claim_registry = list(existing_turn_packet.get("claim_registry", []))
+        evidence_clusters = list(existing_turn_packet.get("evidence_clusters", []))
+    else:
+        intel_bundle = collect_intel_bundle(mission, scenario, turn_id, collection_plan, seed)
+        raw_evidence = intel_bundle["evidence"]
+        source_capture_manifest = intel_bundle["source_capture_manifest"]
+        claim_registry = intel_bundle["claim_registry"]
+        evidence_clusters = intel_bundle["evidence_clusters"]
     vetted_evidence = source_vetting(raw_evidence)
     fused_evidence = fuse_evidence(vetted_evidence)
+    fused_evidence, claim_registry, evidence_clusters = _cluster_evidence_rows(fused_evidence)
 
     blue_subactions = generate_subagent_actions(
         "Blue",
@@ -2823,16 +3413,20 @@ def execute_turn(
     )
     fused_evidence = attach_event_metadata_to_evidence(fused_evidence, provisional_event_ledger)
 
-    turn_packet = {
+    turn_packet = existing_turn_packet or {
         "turn_id": turn_id,
         "prior_state_hash": prior_hash,
         "intel_digest": [{"evidence_id": row["evidence_id"], "claim": row["claim"]} for row in fused_evidence[:10]],
-        "constraints": ["public-source-only", "strategic-level", "human-review-eligible"],
+        "constraints": ["public-source-only", "strategic-level", "ai-panel-review"],
         "tasking": {
             "blue": "produce PMESII-aligned stabilization COA",
             "red": "produce PMESII-aligned coercive COA",
-            "white": "adjudicate with legal, probability, and counterdeception checks",
+            "white": "adjudicate with legal, probability, counterdeception, and AI panel review",
         },
+        "captured_evidence": fused_evidence,
+        "source_capture_manifest": source_capture_manifest,
+        "claim_registry": claim_registry,
+        "evidence_clusters": evidence_clusters,
     }
     baseline_deviations, baseline_deviation_score = compare_events_with_baseline(
         db_path=baseline_db_path,
@@ -2872,6 +3466,8 @@ def execute_turn(
     )
     adjudication["baseline_deviation_score"] = round(baseline_deviation_score, 3)
     adjudication["event_ids"] = [str(row.get("event_id", "")) for row in event_ledger[:12]]
+    expert_review = ai_expert_review_cell(mission, turn_packet, fused_evidence, adjudication, event_ledger, seed)
+    adjudication = apply_ai_review_to_adjudication(adjudication, expert_review)
     indicators = indicator_from_state(next_state)
     agent_log = {
         "turn_id": turn_id,
@@ -2880,6 +3476,7 @@ def execute_turn(
         "white_rule_fires": adjudication.get("rule_fires", []),
         "white_decision_rationale": adjudication.get("decision_rationale", []),
         "counterdeception_findings": adjudication.get("counterdeception_findings", []),
+        "expert_review": expert_review,
         "event_ledger": event_ledger,
         "baseline_deviation_score": round(baseline_deviation_score, 3),
     }
@@ -2893,8 +3490,13 @@ def execute_turn(
         state_after=next_state,
         indicators=indicators,
         evidence=fused_evidence,
+        source_capture_manifest=source_capture_manifest,
+        claim_registry=claim_registry,
+        evidence_clusters=evidence_clusters,
         event_ledger=event_ledger,
         baseline_deviations=baseline_deviations,
         baseline_deviation_score=baseline_deviation_score,
+        expert_review=expert_review,
+        adjudication_dissent=expert_review.get("structured_dissent", []),
         agent_log=agent_log,
     )

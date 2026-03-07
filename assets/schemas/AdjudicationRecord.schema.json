@@ -60,6 +60,30 @@
       "items": {
         "type": "string"
       }
+    },
+    "review_mode": {
+      "type": "string"
+    },
+    "expert_panel_votes": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "expert_dissent": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "panel_summary": {
+      "type": "string"
+    },
+    "review_trace_ids": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
     }
   }
 }

@@ -26,6 +26,21 @@
     "quality_gate_warnings_json": {
       "type": "string"
     },
+    "source_capture_manifest_json": {
+      "type": "string"
+    },
+    "claim_registry_json": {
+      "type": "string"
+    },
+    "evidence_clusters_json": {
+      "type": "string"
+    },
+    "expert_review_json": {
+      "type": "string"
+    },
+    "adjudication_dissent_json": {
+      "type": "string"
+    },
     "dashboard_json": {
       "type": "string"
     },

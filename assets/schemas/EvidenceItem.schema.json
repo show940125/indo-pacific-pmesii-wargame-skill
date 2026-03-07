@@ -45,6 +45,36 @@
       "items": {
         "type": "string"
       }
+    },
+    "source_url": {
+      "type": "string"
+    },
+    "publisher": {
+      "type": "string"
+    },
+    "published_at": {
+      "type": "string"
+    },
+    "captured_at": {
+      "type": "string"
+    },
+    "excerpt": {
+      "type": "string"
+    },
+    "capture_mode": {
+      "type": "string"
+    },
+    "claim_extraction_method": {
+      "type": "string"
+    },
+    "source_family": {
+      "type": "string"
+    },
+    "cluster_id": {
+      "type": "string"
+    },
+    "provenance_confidence": {
+      "type": "number"
     }
   }
 }

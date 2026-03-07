@@ -17,18 +17,18 @@ class PipelineTests(unittest.TestCase):
         self.run_campaign = self.skill_dir / "scripts" / "run_campaign.py"
         self.verify_trace = self.skill_dir / "scripts" / "verify_trace.py"
 
-    def run_campaign_once(self, out_dir: Path) -> dict:
+    def run_campaign_once(self, out_dir: Path, mission: Path | None = None, collection: Path | None = None) -> dict:
         cmd = [
             "python",
             str(self.run_campaign),
             "--mission",
-            str(self.mission),
+            str(mission or self.mission),
             "--scenario",
             str(self.scenario),
             "--actor-config",
             str(self.actor),
             "--collection-plan",
-            str(self.collection),
+            str(collection or self.collection),
             "--out",
             str(out_dir),
         ]
@@ -88,6 +88,79 @@ class PipelineTests(unittest.TestCase):
             summary_a = self.run_campaign_once(out_a)
             summary_b = self.run_campaign_once(out_b)
             self.assertEqual(summary_a["final_state_hash"], summary_b["final_state_hash"])
+
+    def test_v25_modes_and_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            sample = tmp_path / "live_feed.txt"
+            sample.write_text("灰色地帶施壓升高。外交溝通尚未完全中斷。", encoding="utf-8")
+            base_mission = json.loads(self.mission.read_text(encoding="utf-8"))
+            base_mission["run_mode"] = "custom"
+            base_mission["turns"] = 1
+            base_mission["review_mode"] = "ai_panel"
+            base_mission["max_live_sources_per_turn"] = 2
+            base_mission["capture_policy"] = "warn"
+            base_mission["strict_kj_threshold"] = 2
+
+            collection_payload = {
+                "sources": [
+                    {
+                        "name": "local_feed",
+                        "tier": "public",
+                        "independence_group": "local_file",
+                        "url": sample.resolve().as_uri(),
+                        "publisher": "Local Feed",
+                        "focus": "灰色地帶施壓",
+                        "capture_mode": "static",
+                        "priority": 1,
+                    },
+                    {
+                        "name": "broken_feed",
+                        "tier": "public",
+                        "independence_group": "broken_file",
+                        "url": (tmp_path / "missing.txt").resolve().as_uri(),
+                        "publisher": "Broken Feed",
+                        "focus": "外交溝通",
+                        "capture_mode": "static",
+                        "priority": 2,
+                    },
+                    {
+                        "name": "regional_wire",
+                        "tier": "public",
+                        "independence_group": "regional_wire",
+                        "publisher": "Regional Wire",
+                        "focus": "區域盟友姿態",
+                        "capture_mode": "static",
+                        "priority": 3,
+                    },
+                ]
+            }
+            collection_path = tmp_path / "collection_v25.json"
+            collection_path.write_text(json.dumps(collection_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+            for mode in ["synthetic", "hybrid", "live_limited"]:
+                mission_payload = dict(base_mission)
+                mission_payload["evidence_mode"] = mode
+                mission_path = tmp_path / f"mission_{mode}.json"
+                mission_path.write_text(json.dumps(mission_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+                out_dir = tmp_path / f"run_{mode}"
+                self.run_campaign_once(out_dir, mission=mission_path, collection=collection_path)
+                self.assertTrue((out_dir / "source_capture_manifest.json").exists())
+                self.assertTrue((out_dir / "claim_registry.json").exists())
+                self.assertTrue((out_dir / "evidence_clusters.json").exists())
+                self.assertTrue((out_dir / "expert_review.json").exists())
+                self.assertTrue((out_dir / "adjudication_dissent.json").exists())
+                report_text = (out_dir / "report_exec.md").read_text(encoding="utf-8")
+                analyst_text = (out_dir / "report_analyst.md").read_text(encoding="utf-8")
+                self.assertIn("本回合 AI 專家覆核結論", report_text)
+                self.assertIn("主要分歧點", report_text)
+                self.assertIn("panel consensus vs dissent", analyst_text)
+                evidence = json.loads((out_dir / "evidence.json").read_text(encoding="utf-8"))
+                self.assertTrue(evidence)
+                if mode == "hybrid":
+                    self.assertTrue(any(row.get("capture_mode") == "synthetic_fallback" for row in evidence))
+                if mode == "live_limited":
+                    self.assertTrue(any(row.get("capture_mode") == "live_capture" for row in evidence))
 
 
 if __name__ == "__main__":

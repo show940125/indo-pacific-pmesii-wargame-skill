@@ -1,0 +1,37 @@
+{
+  "type": "object",
+  "required": [
+    "expert_role",
+    "judgment_on_decision",
+    "source_risk_flags",
+    "confidence_adjustment",
+    "recommended_rationale",
+    "dissent_reason"
+  ],
+  "properties": {
+    "expert_role": {
+      "type": "string"
+    },
+    "judgment_on_decision": {
+      "type": "string"
+    },
+    "source_risk_flags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "confidence_adjustment": {
+      "type": "number"
+    },
+    "recommended_rationale": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "dissent_reason": {
+      "type": "string"
+    }
+  }
+}

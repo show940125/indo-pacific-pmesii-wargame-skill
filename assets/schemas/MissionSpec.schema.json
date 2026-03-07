@@ -138,6 +138,34 @@
     },
     "strict_kj_threshold": {
       "type": "integer"
+    },
+    "evidence_mode": {
+      "type": "string",
+      "enum": [
+        "hybrid",
+        "live_limited",
+        "synthetic"
+      ]
+    },
+    "review_mode": {
+      "type": "string",
+      "enum": [
+        "ai_panel",
+        "none"
+      ]
+    },
+    "expert_panel_profile": {
+      "type": "string"
+    },
+    "max_live_sources_per_turn": {
+      "type": "integer"
+    },
+    "capture_policy": {
+      "type": "string",
+      "enum": [
+        "strict",
+        "warn"
+      ]
     }
   }
 }
