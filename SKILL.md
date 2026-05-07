@@ -65,6 +65,14 @@ Build and inspect the V4 world knowledge layer:
 python scripts/world_kb_import.py --db data/wargame_knowledge.sqlite --mission in/mission.json --scenario in/scenario_pack.json --actor-config in/actor_config.json --collection-plan in/collection_plan.json --references-dir references --context-actor Blue
 ```
 
+Query the V4 knowledge DB for Gemini/GPT/Codex context:
+
+```powershell
+python scripts/query_knowledge_db.py actor-context --actor China --mission in/mission.json --scenario in/scenario_pack.json --question "台海壓力行動" --format json --pretty
+python scripts/query_knowledge_db.py platforms --actor Taiwan --format json
+python scripts/query_knowledge_db.py capabilities --actor PRC --format json
+```
+
 Quality gate check:
 
 ```powershell

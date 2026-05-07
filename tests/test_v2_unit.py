@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import subprocess
 import unittest
 from pathlib import Path
 import sys
@@ -27,7 +29,18 @@ from common import (
     turn_story_cards,
 )
 from gemini_actor import controller_decision, validate_actor_response
-from knowledge_db import actor_context_pack, manifest, seed_database, select_scenario_actor_ids
+from knowledge_db import (
+    actor_context_pack,
+    connect,
+    manifest,
+    query_capabilities,
+    query_interactions,
+    query_platforms,
+    query_pmesii,
+    resolve_actor_id,
+    seed_database,
+    select_scenario_actor_ids,
+)
 
 
 class V2UnitTests(unittest.TestCase):
@@ -506,6 +519,71 @@ class V2UnitTests(unittest.TestCase):
         korea = select_scenario_actor_ids({"topic": "Korean Peninsula crisis", "geo_scope": "Korea"}, {})
         self.assertIn("KP", korea["Red"])
         self.assertIn("KR", korea["Blue"])
+
+    def test_v4_query_helpers_resolve_and_return_grounding(self) -> None:
+        tmp = Path(tempfile.mkdtemp(prefix="pmesii_v4_query_"))
+        try:
+            db_path = tmp / "wargame_knowledge.sqlite"
+            seed_database(db_path, self.mission, self.scenario, {}, {}, SKILL_DIR / "references")
+            with connect(db_path) as conn:
+                self.assertEqual(resolve_actor_id(conn, "US")["actor_id"], "US")
+                self.assertEqual(resolve_actor_id(conn, "PRC")["actor_id"], "CN")
+                self.assertEqual(resolve_actor_id(conn, "Taiwan")["actor_id"], "TW")
+                blue = resolve_actor_id(conn, "Blue", self.mission, self.scenario)
+                self.assertIn(blue["actor_id"], {"US", "IL", "SA", "AE", "GCC"})
+                self.assertTrue(query_pmesii(conn, "CN", max_items=5))
+                self.assertTrue(query_capabilities(conn, "CN", max_items=5))
+                self.assertTrue(query_platforms(conn, "TW", max_items=5))
+                self.assertTrue(query_interactions(conn, "air_defense", max_items=5))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_v4_query_cli_actor_context_and_errors(self) -> None:
+        tmp = Path(tempfile.mkdtemp(prefix="pmesii_v4_query_cli_"))
+        try:
+            db_path = tmp / "wargame_knowledge.sqlite"
+            seed_database(db_path, self.mission, self.scenario, {}, {}, SKILL_DIR / "references")
+            query_cli = SKILL_DIR / "scripts" / "query_knowledge_db.py"
+            base = ["python", str(query_cli), "--db", str(db_path)]
+            result = subprocess.run(
+                base
+                + [
+                    "actor-context",
+                    "--actor",
+                    "China",
+                    "--mission",
+                    str(SKILL_DIR / "in" / "mission.json"),
+                    "--scenario",
+                    str(SKILL_DIR / "in" / "scenario_pack.json"),
+                    "--question",
+                    "台海壓力行動",
+                    "--format",
+                    "json",
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+            )
+            payload = json.loads(result.stdout)
+            self.assertTrue(payload["ok"])
+            self.assertEqual(payload["resolved_actor"]["actor_id"], "CN")
+            concrete = payload["context_pack"]["concrete_actor_context"]
+            self.assertTrue(concrete["pmesii_metrics"])
+            self.assertTrue(concrete["capability_rules"])
+            self.assertTrue(concrete["military_platforms"])
+            self.assertTrue(concrete["weapon_interactions"])
+
+            error = subprocess.run(
+                base + ["pmesii", "--actor", "Blue", "--format", "json"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+            )
+            self.assertNotEqual(error.returncode, 0)
+            self.assertFalse(json.loads(error.stdout)["ok"])
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
 
 
 if __name__ == "__main__":

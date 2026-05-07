@@ -134,6 +134,24 @@ python scripts/run_campaign.py `
   --turns 1
 ```
 
+## Knowledge DB Query CLI
+
+`scripts/query_knowledge_db.py` 是穩定的 LLM 查詢入口。Gemini、GPT 與 controller tool 應該透過這支 CLI 取得 context，不要讓模型自己猜 SQL。
+
+```powershell
+python scripts/query_knowledge_db.py manifest --format json --pretty
+python scripts/query_knowledge_db.py actor-search --keyword Taiwan --format json
+python scripts/query_knowledge_db.py scenario-actors --mission in/mission.json --scenario in/scenario_pack.json --format json
+python scripts/query_knowledge_db.py actor-context --actor China --mission in/mission.json --scenario in/scenario_pack.json --question "台海壓力行動" --format json --pretty
+python scripts/query_knowledge_db.py pmesii --actor PRC --dimension M --format json
+python scripts/query_knowledge_db.py capabilities --actor China --format json
+python scripts/query_knowledge_db.py platforms --actor Taiwan --format json
+python scripts/query_knowledge_db.py interactions --family air_defense --format json
+python scripts/query_knowledge_db.py sources --actor Taiwan --format json
+```
+
+CLI 支援 actor id、alias、display name 與 scenario role。`Blue`、`Red` 這類 scenario role 必須搭配 `--mission` 與 `--scenario`，才能映射到具體 actor。用 `--max-items`、`--max-chars`、`--no-sources` 控制 prompt 長度。
+
 ## 輸出與回放
 
 典型 V4 knowledge 與 run 輸出包括：

@@ -695,6 +695,241 @@ def _role_primary_actor(conn: sqlite3.Connection, role: str) -> str | None:
     return str(row["actor_id"]) if row else None
 
 
+def _decode_json_columns(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    decoded: list[dict[str, Any]] = []
+    for row in rows:
+        item = dict(row)
+        for key, value in list(item.items()):
+            if key.endswith("_json") and isinstance(value, str):
+                item[key[:-5]] = _loads(value, value)
+        decoded.append(item)
+    return decoded
+
+
+def _actor_matches(conn: sqlite3.Connection, actor_or_alias: str) -> list[dict[str, Any]]:
+    term = actor_or_alias.strip()
+    if not term:
+        return []
+    rows = _fetch_all(
+        conn,
+        """
+        SELECT DISTINCT wa.*, aa.alias AS matched_alias
+        FROM world_actors wa
+        LEFT JOIN actor_aliases aa ON aa.actor_id=wa.actor_id
+        WHERE lower(wa.actor_id)=lower(?)
+           OR lower(wa.display_name)=lower(?)
+           OR lower(aa.alias)=lower(?)
+        ORDER BY CASE
+          WHEN lower(wa.actor_id)=lower(?) THEN 0
+          WHEN lower(wa.display_name)=lower(?) THEN 1
+          ELSE 2
+        END, wa.actor_id
+        """,
+        (term, term, term, term, term),
+    )
+    return _decode_json_columns(rows)
+
+
+def resolve_actor_id(
+    conn: sqlite3.Connection,
+    actor_or_alias: str,
+    mission: dict[str, Any] | None = None,
+    scenario: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    term = actor_or_alias.strip()
+    role_names = {"Blue", "Red", "White", "Neutral", "Non-state", "Intel"}
+    if term in role_names:
+        if mission is None or scenario is None:
+            raise ValueError(f"Scenario role '{term}' requires mission and scenario context.")
+        actor_id = _role_primary_actor(conn, term)
+        if actor_id is None:
+            raise ValueError(f"No concrete actor mapped for scenario role: {term}")
+        actor = _fetch_all(conn, "SELECT * FROM world_actors WHERE actor_id=?", (actor_id,))
+        if not actor:
+            raise ValueError(f"Scenario role '{term}' mapped to missing actor: {actor_id}")
+        payload = _decode_json_columns(actor)[0]
+        payload["scenario_role"] = term
+        payload["match_type"] = "scenario_role"
+        return payload
+    matches = _actor_matches(conn, term)
+    if not matches:
+        raise ValueError(f"Unknown actor or alias: {actor_or_alias}")
+    actor_ids = sorted({row["actor_id"] for row in matches})
+    if len(actor_ids) > 1:
+        raise ValueError(f"Ambiguous actor or alias '{actor_or_alias}': {', '.join(actor_ids)}")
+    payload = matches[0]
+    payload["scenario_role"] = None
+    payload["match_type"] = "actor_or_alias"
+    return payload
+
+
+def query_actor_search(conn: sqlite3.Connection, keyword: str, max_items: int = 12) -> list[dict[str, Any]]:
+    pattern = f"%{keyword.strip()}%"
+    rows = _fetch_all(
+        conn,
+        """
+        SELECT DISTINCT wa.*, aa.alias AS matched_alias
+        FROM world_actors wa
+        LEFT JOIN actor_aliases aa ON aa.actor_id=wa.actor_id
+        WHERE lower(wa.actor_id) LIKE lower(?)
+           OR lower(wa.display_name) LIKE lower(?)
+           OR lower(wa.region) LIKE lower(?)
+           OR lower(wa.alignment_tags_json) LIKE lower(?)
+           OR lower(aa.alias) LIKE lower(?)
+        ORDER BY wa.actor_id
+        LIMIT ?
+        """,
+        (pattern, pattern, pattern, pattern, pattern, max_items * 4),
+    )
+    merged: dict[str, dict[str, Any]] = {}
+    for row in _decode_json_columns(rows):
+        actor_id = str(row["actor_id"])
+        alias = row.pop("matched_alias", None)
+        if actor_id not in merged:
+            row["matched_aliases"] = []
+            merged[actor_id] = row
+        if alias and alias not in merged[actor_id]["matched_aliases"]:
+            merged[actor_id]["matched_aliases"].append(alias)
+    return list(merged.values())[:max_items]
+
+
+def query_pmesii(conn: sqlite3.Connection, actor_id: str, dimension: str | None = None, max_items: int = 12) -> list[dict[str, Any]]:
+    if dimension:
+        return _fetch_all(
+            conn,
+            """
+            SELECT m.*, s.title AS source_title, s.url AS source_url, s.publisher, s.source_tier
+            FROM actor_pmesii_metrics m
+            LEFT JOIN source_documents s ON s.source_id=m.source_id
+            WHERE m.actor_id=? AND m.dimension=?
+            ORDER BY m.dimension, m.metric
+            LIMIT ?
+            """,
+            (actor_id, dimension, max_items),
+        )
+    return _fetch_all(
+        conn,
+        """
+        SELECT m.*, s.title AS source_title, s.url AS source_url, s.publisher, s.source_tier
+        FROM actor_pmesii_metrics m
+        LEFT JOIN source_documents s ON s.source_id=m.source_id
+        WHERE m.actor_id=?
+        ORDER BY m.dimension, m.metric
+        LIMIT ?
+        """,
+        (actor_id, max_items),
+    )
+
+
+def query_capabilities(conn: sqlite3.Connection, actor_id: str, domain: str | None = None, max_items: int = 12) -> list[dict[str, Any]]:
+    pattern = f"%{domain.strip()}%" if domain else None
+    if pattern:
+        rows = _fetch_all(
+            conn,
+            """
+            SELECT c.*, s.title AS source_title, s.url AS source_url, s.publisher, s.source_tier
+            FROM capability_rules c
+            LEFT JOIN source_documents s ON s.source_id=c.source_id
+            WHERE c.actor_id=?
+              AND (lower(c.definition) LIKE lower(?) OR lower(c.capability_id) LIKE lower(?))
+            ORDER BY c.confidence DESC, c.capability_id
+            LIMIT ?
+            """,
+            (actor_id, pattern, pattern, max_items),
+        )
+    else:
+        rows = _fetch_all(
+            conn,
+            """
+            SELECT c.*, s.title AS source_title, s.url AS source_url, s.publisher, s.source_tier
+            FROM capability_rules c
+            LEFT JOIN source_documents s ON s.source_id=c.source_id
+            WHERE c.actor_id=?
+            ORDER BY c.confidence DESC, c.capability_id
+            LIMIT ?
+            """,
+            (actor_id, max_items),
+        )
+    return _decode_json_columns(rows)
+
+
+def query_platforms(conn: sqlite3.Connection, actor_id: str, domain: str | None = None, max_items: int = 12) -> list[dict[str, Any]]:
+    if domain:
+        rows = _fetch_all(
+            conn,
+            """
+            SELECT p.*, s.title AS source_title, s.url AS source_url, s.publisher, s.source_tier
+            FROM military_platforms p
+            LEFT JOIN source_documents s ON s.source_id=p.source_id
+            WHERE p.actor_id=? AND lower(p.domain)=lower(?)
+            ORDER BY p.confidence DESC, p.platform_id
+            LIMIT ?
+            """,
+            (actor_id, domain, max_items),
+        )
+    else:
+        rows = _fetch_all(
+            conn,
+            """
+            SELECT p.*, s.title AS source_title, s.url AS source_url, s.publisher, s.source_tier
+            FROM military_platforms p
+            LEFT JOIN source_documents s ON s.source_id=p.source_id
+            WHERE p.actor_id=?
+            ORDER BY p.confidence DESC, p.platform_id
+            LIMIT ?
+            """,
+            (actor_id, max_items),
+        )
+    return rows
+
+
+def query_interactions(conn: sqlite3.Connection, family: str, max_items: int = 12) -> list[dict[str, Any]]:
+    pattern = f"%{family.strip()}%"
+    return _fetch_all(
+        conn,
+        """
+        SELECT * FROM weapon_interactions
+        WHERE lower(attacker_family) LIKE lower(?) OR lower(defender_family) LIKE lower(?)
+        ORDER BY interaction_id
+        LIMIT ?
+        """,
+        (pattern, pattern, max_items),
+    )
+
+
+def query_sources(conn: sqlite3.Connection, actor_id: str, max_items: int = 12) -> dict[str, Any]:
+    claims = _fetch_all(
+        conn,
+        """
+        SELECT sc.*, sd.title AS source_title, sd.url AS source_url, sd.publisher, sd.source_tier
+        FROM source_claims sc
+        LEFT JOIN source_documents sd ON sd.source_id=sc.source_id
+        WHERE sc.actor_id=? OR sc.actor_id IS NULL
+        ORDER BY sc.confidence DESC, sc.claim_id
+        LIMIT ?
+        """,
+        (actor_id, max_items),
+    )
+    provenance = _fetch_all(
+        conn,
+        """
+        SELECT * FROM field_provenance
+        WHERE record_id LIKE ?
+           OR record_id IN (SELECT platform_id FROM military_platforms WHERE actor_id=?)
+           OR record_id IN (SELECT capability_id FROM capability_rules WHERE actor_id=?)
+        ORDER BY table_name, record_id, field_name
+        LIMIT ?
+        """,
+        (f"{actor_id}:%", actor_id, actor_id, max_items),
+    )
+    source_ids = sorted({row.get("source_id") for row in claims + provenance if row.get("source_id")})
+    documents: list[dict[str, Any]] = []
+    if source_ids:
+        placeholders = ",".join("?" for _ in source_ids)
+        documents = _fetch_all(conn, f"SELECT * FROM source_documents WHERE source_id IN ({placeholders}) ORDER BY source_id", tuple(source_ids))
+    return {"source_documents": documents, "source_claims": claims, "field_provenance": provenance}
+
+
 def _world_actor_context(conn: sqlite3.Connection, actor_id: str, max_rows: int) -> dict[str, Any] | None:
     actor = conn.execute("SELECT * FROM world_actors WHERE actor_id=?", (actor_id,)).fetchone()
     if actor is None:

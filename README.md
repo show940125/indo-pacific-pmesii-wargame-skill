@@ -134,6 +134,24 @@ python scripts/run_campaign.py `
   --turns 1
 ```
 
+## Knowledge DB Query CLI
+
+Use `scripts/query_knowledge_db.py` as the stable LLM-facing query interface. Gemini, GPT, and controller tools should call this CLI instead of writing ad hoc SQL.
+
+```powershell
+python scripts/query_knowledge_db.py manifest --format json --pretty
+python scripts/query_knowledge_db.py actor-search --keyword Taiwan --format json
+python scripts/query_knowledge_db.py scenario-actors --mission in/mission.json --scenario in/scenario_pack.json --format json
+python scripts/query_knowledge_db.py actor-context --actor China --mission in/mission.json --scenario in/scenario_pack.json --question "Taiwan Strait pressure options" --format json --pretty
+python scripts/query_knowledge_db.py pmesii --actor PRC --dimension M --format json
+python scripts/query_knowledge_db.py capabilities --actor China --format json
+python scripts/query_knowledge_db.py platforms --actor Taiwan --format json
+python scripts/query_knowledge_db.py interactions --family air_defense --format json
+python scripts/query_knowledge_db.py sources --actor Taiwan --format json
+```
+
+The CLI accepts actor ids, aliases, display names, and scenario roles. Scenario roles such as `Blue` or `Red` require `--mission` and `--scenario` so the role can be mapped to concrete actors. Use `--max-items`, `--max-chars`, and `--no-sources` to keep prompts compact.
+
 ## Outputs and Replay Artifacts
 
 Typical V4 knowledge and run outputs include:
