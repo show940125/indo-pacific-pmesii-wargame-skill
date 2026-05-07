@@ -45,6 +45,20 @@ SEMI_TACTICAL_EVENT_TYPES = [
     "infrastructure_disruption",
 ]
 
+
+def skill_root() -> Path:
+    return Path(__file__).resolve().parent.parent
+
+
+def default_knowledge_db_path() -> Path:
+    return skill_root() / "data" / "wargame_knowledge.sqlite"
+
+
+def resolve_knowledge_db_path(explicit_path: str | None = None) -> Path:
+    if explicit_path:
+        return Path(explicit_path)
+    return default_knowledge_db_path()
+
 TERMS_AND_PARAMETERS = [
     {
         "名稱": "PMESII",

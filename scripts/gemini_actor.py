@@ -19,6 +19,7 @@ from common import (
     fuse_evidence,
     indicator_from_state,
     make_rng,
+    resolve_knowledge_db_path,
     source_vetting,
     stable_hash,
     write_json,
@@ -275,7 +276,7 @@ def execute_gemini_actor_turn(
     working_dir = Path(mission.get("working_dir", "."))
     replay_dir = working_dir / "replay_bundle"
     run_id = str(mission.get("run_id", stable_hash({"topic": mission.get("topic"), "seed": seed})[:12]))
-    knowledge_db_path = Path(mission.get("knowledge_db_path") or working_dir / "wargame_knowledge.sqlite")
+    knowledge_db_path = resolve_knowledge_db_path(mission.get("knowledge_db_path"))
     manifest_payload = seed_database(
         knowledge_db_path,
         mission=mission,

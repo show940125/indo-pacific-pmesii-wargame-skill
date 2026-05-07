@@ -8,6 +8,7 @@ from common import (
     load_actor_config,
     load_json,
     merge_initial_state,
+    resolve_knowledge_db_path,
     validate_mission,
     validate_scenario,
     write_json,
@@ -27,6 +28,7 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--engine", choices=["local_synthetic", "gemini_actor"], default="local_synthetic")
     parser.add_argument("--mock-gemini", action="store_true", help="Use deterministic mock Gemini actor responses.")
+    parser.add_argument("--knowledge-db", default=None, help="V4 knowledge DB path. Defaults to data/wargame_knowledge.sqlite.")
     parser.add_argument("--out", required=True)
     args = parser.parse_args()
 
@@ -52,7 +54,7 @@ def main() -> None:
     mission.setdefault("baseline_db_path", str(out_path.parent / "actor_baseline_db.sqlite"))
     if args.engine == "gemini_actor":
         mission["engine"] = "gemini_actor"
-        mission["knowledge_db_path"] = str(out_path.parent / "wargame_knowledge.sqlite")
+        mission["knowledge_db_path"] = str(resolve_knowledge_db_path(args.knowledge_db or mission.get("knowledge_db_path")))
         result = execute_gemini_actor_turn(
             mission,
             scenario,

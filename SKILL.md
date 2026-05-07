@@ -33,6 +33,8 @@ Run a V3 campaign with deterministic mock Gemini actors for validation:
 python scripts/run_campaign.py --mission in/mission.json --scenario in/scenario_pack.json --actor-config in/actor_config.json --collection-plan in/collection_plan.json --out out/v3_mock_run_001 --engine gemini_actor --mock-gemini --turns 1
 ```
 
+By default, V4 Gemini actor runs use `data/wargame_knowledge.sqlite`. Use `--knowledge-db <path>` only when a scenario needs an isolated local knowledge DB.
+
 Run a V3 campaign with live Gemini CLI fallback:
 
 ```powershell
@@ -54,13 +56,13 @@ python scripts/run_turn.py --mission in/mission.json --scenario in/scenario_pack
 Build or inspect the V3 knowledge database:
 
 ```powershell
-python scripts/knowledge_db.py --db out/run_001/wargame_knowledge.sqlite --mission in/mission.json --scenario in/scenario_pack.json --actor-config in/actor_config.json --collection-plan in/collection_plan.json --references-dir references
+python scripts/knowledge_db.py --db data/wargame_knowledge.sqlite --mission in/mission.json --scenario in/scenario_pack.json --actor-config in/actor_config.json --collection-plan in/collection_plan.json --references-dir references
 ```
 
 Build and inspect the V4 world knowledge layer:
 
 ```powershell
-python scripts/world_kb_import.py --db out/run_001/wargame_knowledge.sqlite --mission in/mission.json --scenario in/scenario_pack.json --actor-config in/actor_config.json --collection-plan in/collection_plan.json --references-dir references --context-actor Blue
+python scripts/world_kb_import.py --db data/wargame_knowledge.sqlite --mission in/mission.json --scenario in/scenario_pack.json --actor-config in/actor_config.json --collection-plan in/collection_plan.json --references-dir references --context-actor Blue
 ```
 
 Quality gate check:
@@ -104,8 +106,8 @@ Fail or freeze a turn if any condition is unmet:
 - `baseline_deviation_report.json`
 - `event_ledger.json`
 - `actor_baseline_db.sqlite`
-- `wargame_knowledge.sqlite`
-- `knowledge_db_manifest.json`
+- `data/wargame_knowledge.sqlite`
+- `out/<run>/knowledge_db_manifest.json`
 - `turn_*_gemini_calls/`
 - `turn_*_actor_context_pack.json`
 - `turn_*_controller_decision.json`
@@ -117,7 +119,7 @@ Fail or freeze a turn if any condition is unmet:
 - `ActorContextPack` includes actor identity, doctrine, PMESII indicators, capabilities, constraints, sources, scenario facts, and turn memory.
 - `GeminiActorResponse` is a JSON object for `Intel`, `Blue`, `Red`, or `White`.
 - `ControllerAdjudication` decides whether actor outputs may affect state.
-- `KnowledgeDbManifest` records `wargame_knowledge.sqlite` schema version and table counts.
+- `KnowledgeDbManifest` records `data/wargame_knowledge.sqlite` schema version and table counts for the run.
 - V4 `ActorContextPack` includes `concrete_actor_id`, `concrete_actor_context`, `scenario_role_map`, military platforms, capability rules, weapon interactions, field provenance, and source documents.
 - Codex does not roleplay Blue, Red, White, or Intel actor intent in the V3 path.
 

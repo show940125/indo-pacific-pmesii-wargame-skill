@@ -190,7 +190,9 @@ class PipelineTests(unittest.TestCase):
                 "--mock-gemini",
             ]
             subprocess.run(cmd, check=True)
-            self.assertTrue((out_dir / "wargame_knowledge.sqlite").exists())
+            knowledge_db = self.skill_dir / "data" / "wargame_knowledge.sqlite"
+            self.assertTrue(knowledge_db.exists())
+            self.assertFalse((out_dir / "wargame_knowledge.sqlite").exists())
             self.assertTrue((out_dir / "knowledge_db_manifest.json").exists())
             self.assertTrue((out_dir / "replay_bundle" / "turn_01_actor_context_pack.json").exists())
             self.assertTrue((out_dir / "replay_bundle" / "turn_01_controller_decision.json").exists())
@@ -202,6 +204,7 @@ class PipelineTests(unittest.TestCase):
             self.assertGreaterEqual(manifest["coverage"]["military_platform_count"], 10)
             artifact = json.loads((out_dir / "run_artifact.json").read_text(encoding="utf-8"))
             self.assertIn("wargame_knowledge_db", artifact)
+            self.assertEqual(Path(artifact["wargame_knowledge_db"]), knowledge_db.resolve())
             summary = json.loads((out_dir / "run_summary.json").read_text(encoding="utf-8"))
             self.assertEqual(summary["engine"], "gemini_actor")
 

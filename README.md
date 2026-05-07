@@ -48,7 +48,7 @@ Each `gemini_actor` turn follows this pipeline:
 
 1. Build a turn packet from `mission.json`, `scenario_pack.json`, `actor_config.json`, and `collection_plan.json`.
 2. Select concrete actors for the scenario and map them to Blue/Red/White/Neutral/Non-state roles.
-3. Query `wargame_knowledge.sqlite` for actor PMESII metrics, capabilities, constraints, military platforms, interaction rules, source claims, and recent turn memory.
+3. Query `data/wargame_knowledge.sqlite` for actor PMESII metrics, capabilities, constraints, military platforms, interaction rules, source claims, and recent turn memory.
 4. Render actor prompts from `assets/prompts/`.
 5. Call Gemini through the actor wrapper, or use deterministic mock actors with `--mock-gemini`.
 6. Validate every actor response against JSON schemas under `assets/schemas/`.
@@ -59,7 +59,7 @@ Gemini actor prose is never allowed to mutate state directly. Only validated JSO
 
 ## SQLite World Knowledge DB
 
-V4 upgrades the database from a small baseline store into `wargame_knowledge.sqlite`, a traceable actor and world-context database.
+V4 upgrades the database from a small baseline store into `data/wargame_knowledge.sqlite`, a stable local actor and world-context database. Run outputs keep manifests and context packs; the main knowledge DB does not live under `out/`.
 
 Major table groups:
 
@@ -106,11 +106,13 @@ python scripts/run_campaign.py `
   --turns 1
 ```
 
+Use `--knowledge-db <path>` on `run_campaign.py` or `run_turn.py` when a scenario needs a separate local knowledge DB. Without that override, both commands use `data/wargame_knowledge.sqlite`.
+
 Build and inspect the V4 world knowledge database:
 
 ```powershell
 python scripts/world_kb_import.py `
-  --db out/v4_world_kb/wargame_knowledge.sqlite `
+  --db data/wargame_knowledge.sqlite `
   --mission in/mission.json `
   --scenario in/scenario_pack.json `
   --actor-config in/actor_config.json `
@@ -134,10 +136,10 @@ python scripts/run_campaign.py `
 
 ## Outputs and Replay Artifacts
 
-Typical V4 run outputs include:
+Typical V4 knowledge and run outputs include:
 
-- `wargame_knowledge.sqlite`
-- `knowledge_db_manifest.json`
+- `data/wargame_knowledge.sqlite`
+- `out/<run>/knowledge_db_manifest.json`
 - `replay_bundle/turn_*_actor_context_pack.json`
 - `replay_bundle/turn_*_gemini_calls/`
 - `replay_bundle/turn_*_controller_decision.json`
@@ -149,7 +151,7 @@ Typical V4 run outputs include:
 - `report_analyst.md`
 - `verify_trace.json`
 
-Each Gemini call directory stores `prompt.md`, `raw_response.txt`, `parsed.json`, and `validation.json` when the actor pipeline runs.
+`data/wargame_knowledge.sqlite` is the long-lived local knowledge DB. `out/<run>/knowledge_db_manifest.json` records the DB state used by a run, and `replay_bundle/turn_*_actor_context_pack.json` records what each actor saw during the turn. Each Gemini call directory stores `prompt.md`, `raw_response.txt`, `parsed.json`, and `validation.json` when the actor pipeline runs.
 
 ## Source Policy and Quality Gates
 
@@ -183,7 +185,7 @@ Useful manual smoke checks:
 
 ```powershell
 python scripts/world_kb_import.py `
-  --db out/v4_world_kb/wargame_knowledge.sqlite `
+  --db data/wargame_knowledge.sqlite `
   --mission in/mission.json `
   --scenario in/scenario_pack.json `
   --actor-config in/actor_config.json `
@@ -212,7 +214,7 @@ The V2.5 local simulator remains available for deterministic runs, evidence-mode
 - baseline deviation reports;
 - event cards and semi-tactical narrative ledgers.
 
-V2.5 artifacts and `actor_baseline_db.sqlite` remain useful for backward compatibility. V4 uses `wargame_knowledge.sqlite` as the primary knowledge layer.
+V2.5 artifacts and `actor_baseline_db.sqlite` remain useful for backward compatibility. V4 uses `data/wargame_knowledge.sqlite` as the primary knowledge layer.
 
 ## Current Limits
 

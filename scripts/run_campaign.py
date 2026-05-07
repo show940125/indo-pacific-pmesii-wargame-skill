@@ -24,6 +24,7 @@ from common import (
     render_event_timeline,
     render_terms_and_parameters,
     render_turn_timeline,
+    resolve_knowledge_db_path,
     run_sensitivity,
     stable_hash,
     turn_story_cards,
@@ -117,6 +118,7 @@ def main() -> None:
     parser.add_argument("--length-counting", default=None, help="Override length counting mode: cjk_chars|all_chars|words")
     parser.add_argument("--engine", choices=["local_synthetic", "gemini_actor"], default="local_synthetic", help="Turn engine")
     parser.add_argument("--mock-gemini", action="store_true", help="Use deterministic mock Gemini actor responses for V3 tests")
+    parser.add_argument("--knowledge-db", default=None, help="V4 knowledge DB path. Defaults to data/wargame_knowledge.sqlite.")
     args = parser.parse_args()
 
     mission = load_json(args.mission)
@@ -164,7 +166,7 @@ def main() -> None:
     mission["working_dir"] = str(out_dir)
     mission["engine"] = args.engine
     mission["baseline_db_path"] = str(out_dir / "actor_baseline_db.sqlite")
-    mission["knowledge_db_path"] = str(out_dir / "wargame_knowledge.sqlite")
+    mission["knowledge_db_path"] = str(resolve_knowledge_db_path(args.knowledge_db or mission.get("knowledge_db_path")))
     baseline_meta = ensure_actor_baseline_db(mission["baseline_db_path"], mission, collection_plan)
 
     skill_dir = Path(__file__).resolve().parent.parent
@@ -346,7 +348,7 @@ def main() -> None:
         "baseline_deviation_report_json": str((out_dir / "baseline_deviation_report.json").resolve()),
         "event_ledger_json": str((out_dir / "event_ledger.json").resolve()),
         "actor_baseline_db": str((out_dir / "actor_baseline_db.sqlite").resolve()),
-        "wargame_knowledge_db": str((out_dir / "wargame_knowledge.sqlite").resolve()),
+        "wargame_knowledge_db": str(Path(mission["knowledge_db_path"]).resolve()),
         "knowledge_db_manifest_json": str((out_dir / "knowledge_db_manifest.json").resolve()),
         "dashboard_json": str((out_dir / "dashboard.json").resolve()),
         "ach_json": str((out_dir / "ach.json").resolve()),

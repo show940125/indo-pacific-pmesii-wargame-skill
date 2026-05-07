@@ -1,4 +1,8 @@
 out/
+data/*.sqlite
+data/*.sqlite3
+data/*.db
+data/*.sqlite-*
 **/__pycache__/
 *.py[cod]
 *.sqlite

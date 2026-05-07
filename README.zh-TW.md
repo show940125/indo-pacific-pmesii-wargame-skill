@@ -48,7 +48,7 @@ flowchart TD
 
 1. 從 `mission.json`、`scenario_pack.json`、`actor_config.json`、`collection_plan.json` 建立 turn packet。
 2. 依 scenario 選出具體 actor，映射到 Blue/Red/White/Neutral/Non-state。
-3. 查詢 `wargame_knowledge.sqlite`，取得 actor PMESII metrics、capabilities、constraints、military platforms、interaction rules、source claims 與最近 turn memory。
+3. 查詢 `data/wargame_knowledge.sqlite`，取得 actor PMESII metrics、capabilities、constraints、military platforms、interaction rules、source claims 與最近 turn memory。
 4. 用 `assets/prompts/` 渲染 actor prompt。
 5. 呼叫 Gemini actor wrapper；測試時可用 `--mock-gemini` 走 deterministic mock。
 6. 依 `assets/schemas/` 驗證所有 actor response。
@@ -59,7 +59,7 @@ Gemini 的自由散文不能直接改變 state。只有通過 JSON schema 並經
 
 ## SQLite 世界知識庫
 
-V4 把資料庫升級為 `wargame_knowledge.sqlite`，定位是可追溯的 actor 與世界上下文庫。
+V4 把資料庫升級為 `data/wargame_knowledge.sqlite`，定位是穩定的本地 actor 與世界上下文庫。`out/` 保存每次 run 的 manifest 與 context pack；主知識庫不放在 `out/` 底下。
 
 主要資料表群：
 
@@ -106,11 +106,13 @@ python scripts/run_campaign.py `
   --turns 1
 ```
 
+若某個 scenario 需要獨立知識庫，可在 `run_campaign.py` 或 `run_turn.py` 加 `--knowledge-db <path>`。沒有指定時，兩者都使用 `data/wargame_knowledge.sqlite`。
+
 建置並檢查 V4 世界知識庫：
 
 ```powershell
 python scripts/world_kb_import.py `
-  --db out/v4_world_kb/wargame_knowledge.sqlite `
+  --db data/wargame_knowledge.sqlite `
   --mission in/mission.json `
   --scenario in/scenario_pack.json `
   --actor-config in/actor_config.json `
@@ -134,10 +136,10 @@ python scripts/run_campaign.py `
 
 ## 輸出與回放
 
-典型 V4 run 會產生：
+典型 V4 knowledge 與 run 輸出包括：
 
-- `wargame_knowledge.sqlite`
-- `knowledge_db_manifest.json`
+- `data/wargame_knowledge.sqlite`
+- `out/<run>/knowledge_db_manifest.json`
 - `replay_bundle/turn_*_actor_context_pack.json`
 - `replay_bundle/turn_*_gemini_calls/`
 - `replay_bundle/turn_*_controller_decision.json`
@@ -149,7 +151,7 @@ python scripts/run_campaign.py `
 - `report_analyst.md`
 - `verify_trace.json`
 
-Gemini call 目錄會保存 `prompt.md`、`raw_response.txt`、`parsed.json`、`validation.json`，方便重跑與 debug。
+`data/wargame_knowledge.sqlite` 是長期本地主知識庫。`out/<run>/knowledge_db_manifest.json` 記錄該 run 使用的 DB 狀態，`replay_bundle/turn_*_actor_context_pack.json` 記錄該回合 actor 實際看到的上下文。Gemini call 目錄會保存 `prompt.md`、`raw_response.txt`、`parsed.json`、`validation.json`，方便重跑與 debug。
 
 ## 來源政策與品質閘門
 
@@ -183,7 +185,7 @@ python -m unittest discover -s tests -p test_pipeline.py
 
 ```powershell
 python scripts/world_kb_import.py `
-  --db out/v4_world_kb/wargame_knowledge.sqlite `
+  --db data/wargame_knowledge.sqlite `
   --mission in/mission.json `
   --scenario in/scenario_pack.json `
   --actor-config in/actor_config.json `
@@ -212,7 +214,7 @@ V2.5 本地 simulator 仍可用於 deterministic runs、evidence-mode 實驗與 
 - baseline deviation reports；
 - event cards 與 semi-tactical narrative ledgers。
 
-V2.5 artifacts 與 `actor_baseline_db.sqlite` 保留作為相容層。V4 的主要知識層是 `wargame_knowledge.sqlite`。
+V2.5 artifacts 與 `actor_baseline_db.sqlite` 保留作為相容層。V4 的主要知識層是 `data/wargame_knowledge.sqlite`。
 
 ## 目前限制
 
