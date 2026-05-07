@@ -26,6 +26,8 @@ from common import (
     render_exec_report_markdown,
     turn_story_cards,
 )
+from gemini_actor import controller_decision, validate_actor_response
+from knowledge_db import actor_context_pack, manifest, seed_database, select_scenario_actor_ids
 
 
 class V2UnitTests(unittest.TestCase):
@@ -419,6 +421,91 @@ class V2UnitTests(unittest.TestCase):
         self.assertIn("本回合 AI 專家覆核結論", exec_text)
         self.assertIn("主要分歧點", exec_text)
         self.assertIn("panel consensus vs dissent", analyst_text)
+
+    def test_v3_knowledge_db_seed_and_context_pack(self) -> None:
+        tmp = Path(tempfile.mkdtemp(prefix="pmesii_v3_kb_"))
+        try:
+            db_path = tmp / "wargame_knowledge.sqlite"
+            meta = seed_database(
+                db_path=db_path,
+                mission=self.mission,
+                scenario=self.scenario,
+                actor_config={"blue_priorities": {"M": 0.9}, "red_priorities": {"I": 0.9}},
+                collection_plan={"sources": [{"name": "unit_source", "tier": "public", "independence_group": "unit"}]},
+                references_dir=SKILL_DIR / "references",
+            )
+            self.assertEqual(meta["schema_version"], 4)
+            self.assertGreaterEqual(meta["tables"]["actors"], 4)
+            self.assertGreaterEqual(meta["tables"]["world_actors"], 20)
+            self.assertGreaterEqual(meta["tables"]["military_platforms"], 10)
+            self.assertGreaterEqual(meta["tables"]["weapon_interactions"], 5)
+            pack = actor_context_pack(
+                db_path,
+                "Blue",
+                1,
+                {"P": 50, "M": 70, "E": 55, "S": 48, "I": 72, "Infra": 53},
+                decision_questions=["unit question"],
+            )
+            self.assertEqual(pack["actor"]["actor_id"], "Blue")
+            self.assertTrue(pack["concrete_actor_id"])
+            self.assertTrue(pack["concrete_actor_context"]["military_platforms"])
+            self.assertTrue(pack["concrete_actor_context"]["capability_rules"])
+            self.assertTrue(pack["pmesii_indicators"])
+            self.assertTrue(pack["capabilities"])
+            self.assertTrue(pack["constraints"])
+            self.assertEqual(manifest(db_path)["schema_version"], 4)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_v3_actor_validation_and_controller_freeze(self) -> None:
+        tmp = Path(tempfile.mkdtemp(prefix="pmesii_v4_validate_"))
+        try:
+            db_path = tmp / "wargame_knowledge.sqlite"
+            seed_database(db_path, self.mission, self.scenario, {}, {}, SKILL_DIR / "references")
+            pack = actor_context_pack(db_path, "Blue", 1, {"P": 50, "M": 70, "E": 55, "S": 48, "I": 72, "Infra": 53})
+            invalid_capability = {
+                "actor_id": "Blue",
+                "turn_id": 1,
+                "subagent_actions": [
+                    {
+                        "dimension": "M",
+                        "action": "use_impossible_platform",
+                        "db_refs": ["world_actors:US"],
+                        "capability_refs": ["CAP_DOES_NOT_EXIST"],
+                        "platform_refs": ["PLATFORM_DOES_NOT_EXIST"],
+                    }
+                ],
+                "constraints_considered": ["C_CAPABILITY_EXISTS"],
+            }
+            capability_violations = validate_actor_response("Blue", invalid_capability, pack)
+            self.assertTrue(any(row["rule_id"] == "CAPABILITY_NOT_SEEDED" for row in capability_violations))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+        invalid_blue = {
+            "actor_id": "Blue",
+            "turn_id": 1,
+            "subagent_actions": [{"dimension": "bad", "action": "x"}],
+            "constraints_considered": [],
+        }
+        violations = validate_actor_response("Blue", invalid_blue)
+        self.assertTrue(any(row["rule_id"] == "PMESII_DIMENSION_REQUIRED" for row in violations))
+        decision = controller_decision(
+            {"Blue": {"validation": {"violations": violations}}, "White": {"validation": {"violations": []}}},
+            {"P": 50, "M": 70, "E": 55, "S": 48, "I": 72, "Infra": 53},
+        )
+        self.assertFalse(decision["accepted"])
+        self.assertIn("freeze", decision["state_transition_policy"])
+
+    def test_v4_scenario_actor_selection_cases(self) -> None:
+        taiwan = select_scenario_actor_ids({"topic": "Taiwan Strait blockade", "geo_scope": "台海"}, {})
+        self.assertIn("TW", taiwan["Blue"])
+        self.assertIn("CN", taiwan["Red"])
+        middle_east = select_scenario_actor_ids({"topic": "Iran Israel escalation", "geo_scope": "中東 波斯灣"}, {})
+        self.assertIn("IR", middle_east["Red"])
+        self.assertIn("IL", middle_east["Blue"])
+        korea = select_scenario_actor_ids({"topic": "Korean Peninsula crisis", "geo_scope": "Korea"}, {})
+        self.assertIn("KP", korea["Red"])
+        self.assertIn("KR", korea["Blue"])
 
 
 if __name__ == "__main__":

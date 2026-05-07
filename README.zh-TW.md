@@ -1,10 +1,25 @@
-# Indo-Pacific PMESII 兵推 Skill（V2.5）
+# Indo-Pacific PMESII 兵推 Skill（V4）
 
 [English Version](./README.md)
 
 一個基於多Agent設計的戰略層 PMESII 兵推 Codex Skill 的測試專案。設計時參考RAND、CSIS等頂尖智庫的兵推模擬流程，並根據Agent以及OS資訊性質進行特化調整。本Skill之特點在於，主題推演將以策略回合制方式加以呈現，直至推演到定期(回合)並產生結果。每一回合都能回放、每個結論都能追到證據，方便研究團隊複核與重跑。
 
-## 0. V2.5 優化說明
+## 0. V4 更新說明
+
+V4 把這個專案從本地 deterministic 多代理模擬器，升級成「Gemini actor + Codex controller + SQLite 世界知識庫」的兵推框架。
+
+相對 V2.5 的主要變更：
+
+- `Gemini Actor Engine`：新增 `--engine gemini_actor`，由 Gemini 風格 actor 扮演 Intel、Blue、Red、White；`--mock-gemini` 提供可重現測試路徑。
+- `Codex Controller`：Codex/Python 負責驗證 actor JSON、檢查能力接地、記錄違規，並在高風險違規時凍結 state transition。
+- `World Knowledge SQLite`：`wargame_knowledge.sqlite` 現在包含具體國家/組織 actor、scenario role mapping、PMESII metrics、source documents、field provenance、benchmark cases、quality diagnostics。
+- `Military Modeling Layer`：新增型號級軍事平台 seed、capability rules、weapon interaction rules，支援戰略層軍事接地，同時避免假精準。
+- `Actor Registry`：首批覆蓋印太與中東核心 actor，包括美中俄台日韓北韓、伊朗、以色列、波斯灣 actor、NATO/EU/GCC、Houthis、Hezbollah。
+- `Source Policy`：V4 保存分層來源、raw value、normalized score、confidence、source URL、data year，讓 Gemini 與 Codex 都能追資料來源。
+
+V4 仍是戰略模擬框架。它不是即時 targeting database，也不是機密 ORBAT 產品，更不是精準傷亡模型。
+
+## 0a. V2.5 優化說明
 
 V2.5 優先修正了「只有來源標籤的合成證據」假裝成真正的 open-source evidence。
 
@@ -90,6 +105,17 @@ flowchart TD
 
 執行時會自動生成 `actor_baseline_db.sqlite`。
 
+V4 另會生成 `wargame_knowledge.sqlite`。
+
+V4 世界知識庫主要資料表：
+
+- `world_actors`, `actor_aliases`, `actor_bloc_roles`
+- `actor_pmesii_metrics`, `metric_sources`
+- `military_platforms`, `platform_capabilities`, `weapon_interactions`, `force_posture`
+- `capability_rules`, `capability_triggers`, `capability_effects`, `capability_constraints`
+- `source_documents`, `source_claims`, `field_provenance`
+- `quality_diagnostics`, `benchmark_cases`
+
 資料表：
 
 - `actors`
@@ -156,6 +182,33 @@ V2.5 collection / evidence 重要新增：
 - 美伊情境範本：`in/*_us_iran_20260305.json`
 
 ## 7. CLI 用法
+
+V4 Gemini actor campaign，使用 deterministic mock actors：
+
+```powershell
+python scripts/run_campaign.py `
+  --mission in/mission.json `
+  --scenario in/scenario_pack.json `
+  --actor-config in/actor_config.json `
+  --collection-plan in/collection_plan.json `
+  --out out/v4_mock_run `
+  --engine gemini_actor `
+  --mock-gemini `
+  --turns 1
+```
+
+建置並檢查 V4 世界知識庫：
+
+```powershell
+python scripts/world_kb_import.py `
+  --db out/v4_world_kb/wargame_knowledge.sqlite `
+  --mission in/mission.json `
+  --scenario in/scenario_pack.json `
+  --actor-config in/actor_config.json `
+  --collection-plan in/collection_plan.json `
+  --references-dir references `
+  --context-actor Blue
+```
 
 完整 campaign：
 

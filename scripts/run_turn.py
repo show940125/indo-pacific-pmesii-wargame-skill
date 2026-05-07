@@ -12,10 +12,11 @@ from common import (
     validate_scenario,
     write_json,
 )
+from gemini_actor import execute_gemini_actor_turn
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run a single turn with multi-agent/subagent flow.")
+    parser = argparse.ArgumentParser(description="Run a single turn with local synthetic or Gemini actor flow.")
     parser.add_argument("--mission", required=True)
     parser.add_argument("--scenario", required=True)
     parser.add_argument("--actor-config", default=None)
@@ -24,6 +25,8 @@ def main() -> None:
     parser.add_argument("--state", default=None, help="State JSON path. If missing, uses scenario initial_state.")
     parser.add_argument("--turn-id", type=int, default=None, help="Turn id when no turn packet is provided.")
     parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--engine", choices=["local_synthetic", "gemini_actor"], default="local_synthetic")
+    parser.add_argument("--mock-gemini", action="store_true", help="Use deterministic mock Gemini actor responses.")
     parser.add_argument("--out", required=True)
     args = parser.parse_args()
 
@@ -47,16 +50,31 @@ def main() -> None:
     out_path = Path(args.out)
     mission.setdefault("working_dir", str(out_path.parent))
     mission.setdefault("baseline_db_path", str(out_path.parent / "actor_baseline_db.sqlite"))
-    result = execute_turn(
-        mission,
-        scenario,
-        actor_config,
-        state,
-        turn_id,
-        seed,
-        collection_plan,
-        existing_turn_packet=turn_packet if args.turn_packet else None,
-    )
+    if args.engine == "gemini_actor":
+        mission["engine"] = "gemini_actor"
+        mission["knowledge_db_path"] = str(out_path.parent / "wargame_knowledge.sqlite")
+        result = execute_gemini_actor_turn(
+            mission,
+            scenario,
+            actor_config,
+            state,
+            turn_id,
+            seed,
+            collection_plan,
+            existing_turn_packet=turn_packet if args.turn_packet else None,
+            mock_gemini=args.mock_gemini,
+        )
+    else:
+        result = execute_turn(
+            mission,
+            scenario,
+            actor_config,
+            state,
+            turn_id,
+            seed,
+            collection_plan,
+            existing_turn_packet=turn_packet if args.turn_packet else None,
+        )
 
     write_json(out_path, result.to_dict())
     print(f"Saved turn result: {out_path}")

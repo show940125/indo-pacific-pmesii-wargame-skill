@@ -33,6 +33,7 @@ from common import (
     write_json,
     write_jsonl,
 )
+from gemini_actor import execute_gemini_actor_turn
 
 
 def _build_event_rows(turn_result) -> list[dict]:
@@ -114,6 +115,8 @@ def main() -> None:
     parser.add_argument("--min-chars-exec", type=int, default=None, help="Override exec report minimum units")
     parser.add_argument("--min-chars-analyst", type=int, default=None, help="Override analyst report minimum units")
     parser.add_argument("--length-counting", default=None, help="Override length counting mode: cjk_chars|all_chars|words")
+    parser.add_argument("--engine", choices=["local_synthetic", "gemini_actor"], default="local_synthetic", help="Turn engine")
+    parser.add_argument("--mock-gemini", action="store_true", help="Use deterministic mock Gemini actor responses for V3 tests")
     args = parser.parse_args()
 
     mission = load_json(args.mission)
@@ -159,7 +162,9 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     replay_dir.mkdir(parents=True, exist_ok=True)
     mission["working_dir"] = str(out_dir)
+    mission["engine"] = args.engine
     mission["baseline_db_path"] = str(out_dir / "actor_baseline_db.sqlite")
+    mission["knowledge_db_path"] = str(out_dir / "wargame_knowledge.sqlite")
     baseline_meta = ensure_actor_baseline_db(mission["baseline_db_path"], mission, collection_plan)
 
     skill_dir = Path(__file__).resolve().parent.parent
@@ -182,15 +187,27 @@ def main() -> None:
     write_json(replay_dir / "turn_00_state.json", state)
 
     for turn_id in range(1, turns + 1):
-        turn_result = execute_turn(
-            mission=mission,
-            scenario=scenario,
-            actor_config=actor_config,
-            state=state,
-            turn_id=turn_id,
-            seed=seed,
-            collection_plan=collection_plan,
-        )
+        if args.engine == "gemini_actor":
+            turn_result = execute_gemini_actor_turn(
+                mission=mission,
+                scenario=scenario,
+                actor_config=actor_config,
+                state=state,
+                turn_id=turn_id,
+                seed=seed,
+                collection_plan=collection_plan,
+                mock_gemini=args.mock_gemini,
+            )
+        else:
+            turn_result = execute_turn(
+                mission=mission,
+                scenario=scenario,
+                actor_config=actor_config,
+                state=state,
+                turn_id=turn_id,
+                seed=seed,
+                collection_plan=collection_plan,
+            )
         turn_results.append(turn_result)
         state = turn_result.state_after
         last_indicators = turn_result.indicators
@@ -214,6 +231,8 @@ def main() -> None:
         write_json(replay_dir / f"turn_{turn_id:02d}_event_ledger.json", turn_result.event_ledger)
         write_json(replay_dir / f"turn_{turn_id:02d}_source_capture_manifest.json", turn_result.source_capture_manifest)
         write_json(replay_dir / f"turn_{turn_id:02d}_expert_review.json", turn_result.expert_review)
+        if args.engine != "gemini_actor":
+            write_json(replay_dir / f"turn_{turn_id:02d}_violations.json", [])
         event_rows.extend(turn_result.event_ledger)
         baseline_deviation_rows.extend(turn_result.baseline_deviations)
         turn_cards = turn_story_cards(turn_result)
@@ -327,6 +346,8 @@ def main() -> None:
         "baseline_deviation_report_json": str((out_dir / "baseline_deviation_report.json").resolve()),
         "event_ledger_json": str((out_dir / "event_ledger.json").resolve()),
         "actor_baseline_db": str((out_dir / "actor_baseline_db.sqlite").resolve()),
+        "wargame_knowledge_db": str((out_dir / "wargame_knowledge.sqlite").resolve()),
+        "knowledge_db_manifest_json": str((out_dir / "knowledge_db_manifest.json").resolve()),
         "dashboard_json": str((out_dir / "dashboard.json").resolve()),
         "ach_json": str((out_dir / "ach.json").resolve()),
         "ach_detailed_json": str((out_dir / "ach_detailed.json").resolve()),
@@ -352,6 +373,8 @@ def main() -> None:
         "length_counting": mission.get("length_counting", "cjk_chars"),
         "evidence_mode": mission.get("evidence_mode", "hybrid"),
         "review_mode": mission.get("review_mode", "ai_panel"),
+        "engine": args.engine,
+        "mock_gemini": bool(args.mock_gemini),
     }
     write_json(out_dir / "run_summary.json", summary)
     print(json.dumps(summary, ensure_ascii=False, indent=2))

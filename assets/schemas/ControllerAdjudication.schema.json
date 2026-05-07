@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ControllerAdjudication",
+  "type": "object",
+  "required": ["controller_role", "accepted", "rationale", "violations", "state_transition_policy", "state_hash"],
+  "properties": {
+    "controller_role": {"type": "string"},
+    "accepted": {"type": "boolean"},
+    "rationale": {"type": "string"},
+    "violations": {"type": "array", "items": {"type": "object"}},
+    "state_transition_policy": {"type": "string"},
+    "state_hash": {"type": "string"}
+  }
+}

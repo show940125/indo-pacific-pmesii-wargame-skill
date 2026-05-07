@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ActorContextPack",
+  "type": "object",
+  "required": ["schema_version", "actor", "turn_id", "state", "pmesii_indicators", "constraints"],
+  "properties": {
+    "schema_version": {"type": "integer"},
+    "actor": {"type": "object"},
+    "turn_id": {"type": "integer"},
+    "state": {"type": "object"},
+    "decision_questions": {"type": "array", "items": {"type": "string"}},
+    "doctrine": {"type": "array", "items": {"type": "object"}},
+    "pmesii_indicators": {"type": "array", "items": {"type": "object"}},
+    "capabilities": {"type": "array", "items": {"type": "object"}},
+    "constraints": {"type": "array", "items": {"type": "object"}},
+    "sources": {"type": "array", "items": {"type": "object"}},
+    "scenario_facts": {"type": "array", "items": {"type": "object"}},
+    "recent_turn_memory": {"type": "array", "items": {"type": "object"}}
+  }
+}

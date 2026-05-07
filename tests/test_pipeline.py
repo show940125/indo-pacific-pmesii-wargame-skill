@@ -162,6 +162,49 @@ class PipelineTests(unittest.TestCase):
                 if mode == "live_limited":
                     self.assertTrue(any(row.get("capture_mode") == "live_capture" for row in evidence))
 
+    def test_v3_gemini_actor_mock_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            mission_payload = json.loads(self.mission.read_text(encoding="utf-8"))
+            mission_payload["run_mode"] = "custom"
+            mission_payload["turns"] = 1
+            mission_payload["strict_kj_threshold"] = 2
+            mission_path = tmp_path / "mission_v3.json"
+            mission_path.write_text(json.dumps(mission_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            out_dir = tmp_path / "run_v3_mock"
+            cmd = [
+                "python",
+                str(self.run_campaign),
+                "--mission",
+                str(mission_path),
+                "--scenario",
+                str(self.scenario),
+                "--actor-config",
+                str(self.actor),
+                "--collection-plan",
+                str(self.collection),
+                "--out",
+                str(out_dir),
+                "--engine",
+                "gemini_actor",
+                "--mock-gemini",
+            ]
+            subprocess.run(cmd, check=True)
+            self.assertTrue((out_dir / "wargame_knowledge.sqlite").exists())
+            self.assertTrue((out_dir / "knowledge_db_manifest.json").exists())
+            self.assertTrue((out_dir / "replay_bundle" / "turn_01_actor_context_pack.json").exists())
+            self.assertTrue((out_dir / "replay_bundle" / "turn_01_controller_decision.json").exists())
+            self.assertTrue((out_dir / "replay_bundle" / "turn_01_violations.json").exists())
+            self.assertTrue((out_dir / "replay_bundle" / "turn_01_gemini_calls" / "blue" / "parsed.json").exists())
+            manifest = json.loads((out_dir / "knowledge_db_manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["schema_version"], 4)
+            self.assertGreaterEqual(manifest["coverage"]["world_actor_count"], 20)
+            self.assertGreaterEqual(manifest["coverage"]["military_platform_count"], 10)
+            artifact = json.loads((out_dir / "run_artifact.json").read_text(encoding="utf-8"))
+            self.assertIn("wargame_knowledge_db", artifact)
+            summary = json.loads((out_dir / "run_summary.json").read_text(encoding="utf-8"))
+            self.assertEqual(summary["engine"], "gemini_actor")
+
 
 if __name__ == "__main__":
     unittest.main()

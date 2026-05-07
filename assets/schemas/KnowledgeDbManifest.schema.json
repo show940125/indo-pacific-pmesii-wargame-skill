@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "KnowledgeDbManifest",
+  "type": "object",
+  "required": ["db_path", "schema_version", "tables", "generated_at"],
+  "properties": {
+    "db_path": {"type": "string"},
+    "schema_version": {"type": "integer"},
+    "tables": {"type": "object"},
+    "generated_at": {"type": "string"}
+  }
+}

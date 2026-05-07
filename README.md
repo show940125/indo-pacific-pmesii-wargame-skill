@@ -1,4 +1,4 @@
-# Indo-Pacific PMESII Wargame Skill (V2.5)
+# Indo-Pacific PMESII Wargame Skill (V4)
 
 [繁體中文說明 / Traditional Chinese](./README.zh-TW.md)
 
@@ -6,7 +6,22 @@ This project runs strategic-level PMESII wargames with one priority: every turn 
 
 If you need think-tank-style outputs (red/blue/white adjudication, ACH, decision reports) without black-box behavior, this is what the repo is built for.
 
-## 0. What Changed in V2.5
+## 0. What Changed in V4
+
+V4 changes the project from a local deterministic multi-agent simulator into a Gemini actor + Codex controller wargame framework backed by a richer SQLite world knowledge layer.
+
+Main deltas from V2.5:
+
+- `Gemini Actor Engine`: `--engine gemini_actor` calls Gemini-style actor roles for Intel, Blue, Red, and White. `--mock-gemini` keeps tests deterministic.
+- `Codex Controller`: Codex/Python validates actor JSON, checks capability grounding, records violations, and freezes unsafe state transitions.
+- `World Knowledge SQLite`: `wargame_knowledge.sqlite` now includes concrete country/organization actors, scenario role mapping, PMESII metrics, source documents, field provenance, benchmark cases, and quality diagnostics.
+- `Military Modeling Layer`: model-level military platform seed data, capability rules, and weapon-interaction rules support strategic military grounding without fake precision.
+- `Actor Registry`: first-pass seed covers core Indo-Pacific and Middle East actors, including US, China, Russia, Taiwan, Japan, Korea actors, Iran, Israel, Gulf actors, NATO/EU/GCC, Houthis, and Hezbollah.
+- `Source Policy`: V4 records layered provenance and separates raw values, normalized modeling scores, confidence, source URL, and data year.
+
+V4 is still a strategic simulation framework. It is not a real-time targeting database, a classified ORBAT product, or a precise casualty model.
+
+## 0a. What Changed in V2.5
 
 V2.5 is the first version that stops pretending "source labels" are enough.
 
@@ -92,6 +107,17 @@ Turn handshake:
 
 Each run generates `actor_baseline_db.sqlite`.
 
+V4 also generates `wargame_knowledge.sqlite`.
+
+V4 world knowledge tables include:
+
+- `world_actors`, `actor_aliases`, `actor_bloc_roles`
+- `actor_pmesii_metrics`, `metric_sources`
+- `military_platforms`, `platform_capabilities`, `weapon_interactions`, `force_posture`
+- `capability_rules`, `capability_triggers`, `capability_effects`, `capability_constraints`
+- `source_documents`, `source_claims`, `field_provenance`
+- `quality_diagnostics`, `benchmark_cases`
+
 Tables:
 
 - `actors`
@@ -158,6 +184,33 @@ Bundled templates:
 - US-Iran set: `in/*_us_iran_20260305.json`
 
 ## 7. CLI
+
+V4 Gemini actor campaign with deterministic mock actors:
+
+```powershell
+python scripts/run_campaign.py `
+  --mission in/mission.json `
+  --scenario in/scenario_pack.json `
+  --actor-config in/actor_config.json `
+  --collection-plan in/collection_plan.json `
+  --out out/v4_mock_run `
+  --engine gemini_actor `
+  --mock-gemini `
+  --turns 1
+```
+
+Build and inspect the V4 world knowledge layer:
+
+```powershell
+python scripts/world_kb_import.py `
+  --db out/v4_world_kb/wargame_knowledge.sqlite `
+  --mission in/mission.json `
+  --scenario in/scenario_pack.json `
+  --actor-config in/actor_config.json `
+  --collection-plan in/collection_plan.json `
+  --references-dir references `
+  --context-actor Blue
+```
 
 Full campaign:
 

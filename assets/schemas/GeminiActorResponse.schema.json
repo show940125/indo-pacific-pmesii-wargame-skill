@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GeminiActorResponse",
+  "type": "object",
+  "required": ["actor_id", "turn_id"],
+  "properties": {
+    "actor_id": {"type": "string", "enum": ["Blue", "Red", "White", "Intel"]},
+    "turn_id": {"type": "integer"},
+    "intent": {"type": "string"},
+    "action_bundle": {"type": "array", "items": {"type": "object"}},
+    "subagent_actions": {"type": "array", "items": {"type": "object"}},
+    "resource_cost": {"type": "number"},
+    "expected_effect": {"type": "array", "items": {"type": "object"}},
+    "confidence": {"type": "number"},
+    "constraints_considered": {"type": "array", "items": {"type": "string"}},
+    "dissent_or_uncertainty": {"type": "array", "items": {"type": "string"}},
+    "assessment": {"type": "string"},
+    "rule_fires": {"type": "array", "items": {"type": "object"}},
+    "dissent": {"type": "array", "items": {"type": "string"}},
+    "violations": {"type": "array", "items": {"type": "object"}},
+    "claims": {"type": "array", "items": {"type": "object"}},
+    "source_ids": {"type": "array", "items": {"type": "string"}},
+    "uncertainties": {"type": "array", "items": {"type": "string"}}
+  }
+}
