@@ -2,190 +2,97 @@
 
 [繁體中文說明 / Traditional Chinese](./README.zh-TW.md)
 
-This project runs strategic-level PMESII wargames with one priority: every turn is replayable, and every conclusion is traceable.
+This repository is a Codex skill for strategic-level Indo-Pacific and Middle East PMESII wargames. V4 uses a Gemini actor engine, a Codex/Python controller, and a SQLite world knowledge database so that every turn is role-grounded, rule-checked, and replayable.
 
-If you need think-tank-style outputs (red/blue/white adjudication, ACH, decision reports) without black-box behavior, this is what the repo is built for.
+V4 is designed for policy, strategy, crisis-management, and structured analytic exercises. It uses model-level military and PMESII grounding, but it does not provide real-time targeting, classified ORBAT, or precise casualty prediction.
 
-## 0. What Changed in V4
+## What This Is
 
-V4 changes the project from a local deterministic multi-agent simulator into a Gemini actor + Codex controller wargame framework backed by a richer SQLite world knowledge layer.
+The current workflow is actor-driven:
 
-Main deltas from V2.5:
+- Gemini plays concrete actors such as the United States, China, Taiwan, Japan, Iran, Israel, NATO, GCC, Houthis, or Hezbollah.
+- Codex/Python prepares turn packets, queries SQLite context, validates actor JSON, applies constraints, records violations, and integrates the report.
+- SQLite stores actor identity, PMESII indicators, capability rules, military platform bands, source provenance, and turn memory.
+- The legacy deterministic engine remains available as a local fallback through `--engine local_synthetic`.
 
-- `Gemini Actor Engine`: `--engine gemini_actor` calls Gemini-style actor roles for Intel, Blue, Red, and White. `--mock-gemini` keeps tests deterministic.
-- `Codex Controller`: Codex/Python validates actor JSON, checks capability grounding, records violations, and freezes unsafe state transitions.
-- `World Knowledge SQLite`: `wargame_knowledge.sqlite` now includes concrete country/organization actors, scenario role mapping, PMESII metrics, source documents, field provenance, benchmark cases, and quality diagnostics.
-- `Military Modeling Layer`: model-level military platform seed data, capability rules, and weapon-interaction rules support strategic military grounding without fake precision.
-- `Actor Registry`: first-pass seed covers core Indo-Pacific and Middle East actors, including US, China, Russia, Taiwan, Japan, Korea actors, Iran, Israel, Gulf actors, NATO/EU/GCC, Houthis, and Hezbollah.
-- `Source Policy`: V4 records layered provenance and separates raw values, normalized modeling scores, confidence, source URL, and data year.
+The abstract `Blue`, `Red`, `White`, and `Neutral` labels are scenario roles. V4 maps them onto concrete countries, organizations, or non-state actors for each run.
 
-V4 is still a strategic simulation framework. It is not a real-time targeting database, a classified ORBAT product, or a precise casualty model.
-
-## 0a. What Changed in V2.5
-
-V2.5 is the first version that stops pretending "source labels" are enough.
-
-Main deltas from V2.3:
-
-- `Evidence Modes`: `synthetic`, `hybrid`, and `live_limited`.
-- `Live-Seed Ready`: limited open-source capture can now be frozen into replay-safe snapshots.
-- `Provenance Fields`: evidence can carry `source_url`, `publisher`, `published_at`, `captured_at`, `excerpt`, `capture_mode`, `claim_extraction_method`, `source_family`, `cluster_id`, and `provenance_confidence`.
-- `AI Expert Review Cell`: fixed multi-role review layer (`Regional Strategist`, `Operational/Military Analyst`, `OSINT & Source-Vetting Skeptic`, `Legal/ROE & Escalation Reviewer`) runs after base adjudication.
-- `Replay Hardening`: turn packets can persist `captured_evidence`, `source_capture_manifest`, `claim_registry`, and `evidence_clusters`, so replay does not need to hit the network again.
-- `New Artifacts`: `source_capture_manifest.json`, `claim_registry.json`, `evidence_clusters.json`, `expert_review.json`, `adjudication_dissent.json`.
-
-What V2.5 is not:
-
-- Not a full research-grade OSINT ingestion platform.
-- Not a human-expert white-cell replacement.
-- Not a tactical combat model.
-
-## 1. Scope
-
-Good fit:
-
-- Strategic and policy simulation across PMESII.
-- Red/Blue/White turn-based adjudication.
-- Evidence-driven inference with audit trails.
-- Dual reporting for executives and analysts.
-
-Not a fit:
-
-- Tactical fire-control or precise kill-chain models.
-- Classified intel data pipelines.
-- Live ISR streaming systems.
-
-## 2. Architecture and Roles
-
-Core cells:
-
-- `Supreme Orchestrator`: controls run flow and sequencing.
-- `Control Cell`: manages seeds, replayability, run indexing.
-- `Blue Command`: composes blue-side COA.
-- `Red Command`: composes red-side counter-COA.
-- `White Cell`: adjudicates with `Legal/ROE`, `Probability`, and `Counterdeception`.
-- `Intel Cell`: collection, vetting, fusion.
-- `AI Expert Review Cell`: post-adjudication review and dissent generation.
-- `Analysis Cell`: ACH, sensitivity, indicator tracking.
-- `Report Cell`: executive and analyst report generation.
-
-Color roles:
-
-- `Blue`: primary stabilizing/protected actor in default templates.
-- `Red`: adversarial/challenging actor.
-- `White`: referee and quality-control actor (non-combatant).
-
-## 3. End-to-End Flow
+## V4 Architecture
 
 ```mermaid
 flowchart TD
-    A["MissionSpec + ScenarioPack + ActorConfig + CollectionPlan"] --> B["Turn Packet Build"]
-    B --> C["Blue COA"]
-    B --> D["Red COA"]
-    C --> E["White Adjudication"]
-    D --> E
-    E --> F["PMESII State Update"]
-    F --> G["Event Ledger (semi-tactical narrative)"]
-    G --> H["Baseline Deviation Compare (SQLite)"]
-    H --> I["ACH Matrix + Key Judgments"]
-    I --> J["Dual Reports + Timelines + Artifacts"]
-    J --> K["verify_trace Quality Gates"]
+    A["Mission + Scenario + Actor Config"] --> B["Scenario Actor Selection"]
+    B --> C["SQLite World Knowledge Context Pack"]
+    C --> D["Gemini Intel/Fusion Actor"]
+    C --> E["Gemini Blue Actor"]
+    C --> F["Gemini Red Actor"]
+    D --> G["JSON Contract Validation"]
+    E --> G
+    F --> G
+    G --> H["Gemini White Review"]
+    H --> I["Codex Controller / Judge"]
+    I --> J["Violations + State Delta + Turn Memory"]
+    J --> K["Replay Bundle + Reports + verify_trace"]
 ```
 
-Turn handshake:
+Core responsibilities:
 
-1. Mission Context
-2. Blue COA
-3. Red COA
-4. White Adjudication
-5. PMESII State Update
-6. Event Ledger + Story Cards
-7. Indicators + Key Judgments
-8. Next Turn Tasking
+- `Gemini actors`: roleplay concrete actors and return structured JSON only.
+- `Codex controller`: observe, validate, adjudicate, constrain, and explain actor outputs.
+- `Python scripts`: orchestrate runs, build context packs, validate schemas, persist artifacts, and run quality gates.
+- `SQLite knowledge DB`: provide reusable actor baselines, PMESII context, capability grounding, military modeling data, and provenance.
 
-## 4. Baseline Database (SQLite)
+## How a V4 Turn Runs
 
-Each run generates `actor_baseline_db.sqlite`.
+Each `gemini_actor` turn follows this pipeline:
 
-V4 also generates `wargame_knowledge.sqlite`.
+1. Build a turn packet from `mission.json`, `scenario_pack.json`, `actor_config.json`, and `collection_plan.json`.
+2. Select concrete actors for the scenario and map them to Blue/Red/White/Neutral/Non-state roles.
+3. Query `wargame_knowledge.sqlite` for actor PMESII metrics, capabilities, constraints, military platforms, interaction rules, source claims, and recent turn memory.
+4. Render actor prompts from `assets/prompts/`.
+5. Call Gemini through the actor wrapper, or use deterministic mock actors with `--mock-gemini`.
+6. Validate every actor response against JSON schemas under `assets/schemas/`.
+7. Run Codex controller checks for unsupported capabilities, missing database grounding, unbounded escalation, ignored countermeasures, and missing White dissent.
+8. Persist prompts, raw responses, parsed JSON, validation reports, violations, controller decisions, and replay artifacts.
 
-V4 world knowledge tables include:
+Gemini actor prose is never allowed to mutate state directly. Only validated JSON plus controller-adjudicated deltas enter the replay record.
 
-- `world_actors`, `actor_aliases`, `actor_bloc_roles`
-- `actor_pmesii_metrics`, `metric_sources`
-- `military_platforms`, `platform_capabilities`, `weapon_interactions`, `force_posture`
-- `capability_rules`, `capability_triggers`, `capability_effects`, `capability_constraints`
-- `source_documents`, `source_claims`, `field_provenance`
-- `quality_diagnostics`, `benchmark_cases`
+## SQLite World Knowledge DB
 
-Tables:
+V4 upgrades the database from a small baseline store into `wargame_knowledge.sqlite`, a traceable actor and world-context database.
 
-- `actors`
-- `pmesii_baseline`
-- `military_baseline`
-- `economic_baseline`
-- `diplomatic_baseline`
-- `source_registry`
+Major table groups:
 
-Current V2.3 baseline behavior:
+- Actor registry: `world_actors`, `actor_aliases`, `actor_bloc_roles`
+- PMESII modeling: `actor_pmesii_metrics`, `metric_sources`
+- Military modeling: `military_platforms`, `platform_capabilities`, `weapon_interactions`, `force_posture`
+- Capability rules: `capability_rules`, `capability_triggers`, `capability_effects`, `capability_constraints`
+- Provenance: `source_documents`, `source_claims`, `field_provenance`
+- Diagnostics: `quality_diagnostics`, `benchmark_cases`
+- Compatibility layer: `actors`, `actor_doctrine`, `pmesii_indicators`, `capabilities`, `constraints`, `turn_memory`
 
-- Uses structured, auditable baseline bands plus source-tier priors from `collection_plan`.
-- Does not claim to be a full authoritative ORBAT database.
-- Can be reused across runs; update/override as your research baseline matures.
+Seed coverage currently focuses on Indo-Pacific and Middle East actors: US, China, Russia, Taiwan, Japan, South Korea, North Korea, Iran, Israel, Saudi Arabia, UAE, Qatar, Turkey, UK, France, Germany, Australia, India, Vietnam, Philippines, Singapore, NATO, EU, GCC, Houthis, and Hezbollah.
 
-## 5. Event Engine (Semi-Tactical Narrative)
+See [references/sqlite-knowledge-schema.md](./references/sqlite-knowledge-schema.md), [references/world-kb-schema.md](./references/world-kb-schema.md), and [references/world-kb-source-policy.md](./references/world-kb-source-policy.md).
 
-Per-turn fixed event types:
+## Military Modeling Layer
 
-- `military_movement`
-- `simulated_engagement`
-- `sanction_action`
-- `diplomatic_mediation`
-- `info_operation`
-- `infrastructure_disruption`
+The military layer is strategic and model-level. It records inventory bands, platform families, domains, roles, readiness bands, effect classes, countermeasure logic, and interaction classes.
 
-Each `TurnEvent` includes:
+It supports checks such as:
 
-- `event_id`, `turn_id`, `actor`, `target`, `location`, `time_window`
-- `event_type`, `action_detail`, `estimated_outcome`
-- `casualty_or_loss_band`
-- `pmesii_delta`, `probability`, `confidence`
-- `evidence_ids`, `assumption_links`
+- whether an actor has the platform or capability it claims to use;
+- whether a capability has plausible preconditions, latency, costs, and risks;
+- whether opposing actors have relevant countermeasures;
+- whether an event is grounded in PMESII and capability context.
 
-Fidelity guardrail:
+It intentionally uses quantity bands and effect ranges instead of fake precision. Local war events can be generated for narrative and analytic purposes, while exact loss counts remain outside scope.
 
-- `simulated_engagement` outputs loss bands, not precise casualty counts.
+See [references/military-modeling-rules.md](./references/military-modeling-rules.md).
 
-## 6. Input Files
+## Quick Start
 
-Minimum inputs:
-
-- `in/mission.json`
-- `in/scenario_pack.json`
-- `in/actor_config.json`
-- `in/collection_plan.json`
-
-Important V2.5 mission fields:
-
-- `evidence_mode`: `synthetic|hybrid|live_limited`
-- `review_mode`: `none|ai_panel`
-- `expert_panel_profile`
-- `max_live_sources_per_turn`
-- `capture_policy`: `warn|strict`
-
-Important V2.5 collection/evidence additions:
-
-- Collection source supports optional `url`, `query`, `rss`, `publisher`, `capture_mode`, `priority`.
-- Evidence rows may now include provenance and clustering fields used by replay and audit flows.
-
-Bundled templates:
-
-- Generic: `in/*.json`
-- US-Iran set: `in/*_us_iran_20260305.json`
-
-## 7. CLI
-
-V4 Gemini actor campaign with deterministic mock actors:
+Run a deterministic V4 Gemini-actor smoke campaign:
 
 ```powershell
 python scripts/run_campaign.py `
@@ -199,7 +106,7 @@ python scripts/run_campaign.py `
   --turns 1
 ```
 
-Build and inspect the V4 world knowledge layer:
+Build and inspect the V4 world knowledge database:
 
 ```powershell
 python scripts/world_kb_import.py `
@@ -212,7 +119,7 @@ python scripts/world_kb_import.py `
   --context-actor Blue
 ```
 
-Full campaign:
+Run the local deterministic fallback:
 
 ```powershell
 python scripts/run_campaign.py `
@@ -220,152 +127,108 @@ python scripts/run_campaign.py `
   --scenario in/scenario_pack.json `
   --actor-config in/actor_config.json `
   --collection-plan in/collection_plan.json `
-  --out out/run_001 `
-  --baseline-mode public_auto `
-  --event-granularity semi_tactical `
-  --fidelity-guardrail enabled `
-  --report-profile dual_layer `
-  --ach-profile full `
-  --term-annotation inline_glossary `
-  --narrative-mode event_cards `
-  --length-policy warn `
-  --min-chars-exec 2000 `
-  --min-chars-analyst 5000 `
-  --length-counting cjk_chars
+  --out out/local_synthetic_run `
+  --engine local_synthetic `
+  --turns 1
 ```
 
-V2.5 mixed-source campaign:
+## Outputs and Replay Artifacts
 
-```powershell
-python scripts/run_campaign.py `
-  --mission in/mission.json `
-  --scenario in/scenario_pack.json `
-  --actor-config in/actor_config.json `
-  --collection-plan in/collection_plan.json `
-  --out out/run_v25 `
-  --report-profile dual_layer `
-  --ach-profile full `
-  --narrative-mode event_cards `
-  --length-policy warn
-```
+Typical V4 run outputs include:
 
-Quality verification:
-
-```powershell
-python scripts/verify_trace.py `
-  --mission in/mission.json `
-  --evidence out/run_001/evidence.json `
-  --event-ledger out/run_001/event_ledger.json `
-  --baseline-deviation out/run_001/baseline_deviation_report.json `
-  --key-judgments out/run_001/key_judgments.json `
-  --ach out/run_001/ach_detailed.json `
-  --report-exec out/run_001/report_exec.md `
-  --report-analyst out/run_001/report_analyst.md `
-  --length-policy warn
-```
-
-## 8. Outputs
-
-Decision-facing:
-
+- `wargame_knowledge.sqlite`
+- `knowledge_db_manifest.json`
+- `replay_bundle/turn_*_actor_context_pack.json`
+- `replay_bundle/turn_*_gemini_calls/`
+- `replay_bundle/turn_*_controller_decision.json`
+- `replay_bundle/turn_*_violations.json`
+- `event_ledger.json`
+- `key_judgments.json`
+- `ach_detailed.json`
 - `report_exec.md`
 - `report_analyst.md`
-- `report.md` (compat alias of `report_exec.md`)
-- `turn_timeline.md`
-- `event_timeline.md`
+- `verify_trace.json`
 
-Analysis and audit:
+Each Gemini call directory stores `prompt.md`, `raw_response.txt`, `parsed.json`, and `validation.json` when the actor pipeline runs.
 
-- `ach.json`, `ach_detailed.json`
-- `key_judgments.json`
-- `sensitivity.json`
-- `evidence.json`
-- `source_capture_manifest.json`
-- `claim_registry.json`
-- `evidence_clusters.json`
-- `expert_review.json`
-- `adjudication_dissent.json`
-- `event_ledger.json`
-- `baseline_deviation_report.json`
-- `run_log.jsonl`
-- `run_artifact.json`
-- `report_metrics.json`
-- `quality_gate_warnings.json`
+## Source Policy and Quality Gates
 
-Replay bundle (`replay_bundle/`):
+The database is built for traceability. High-impact fields should carry source URL, publisher, captured time, data year, confidence, and field-level provenance.
 
-- `turn_*_turn_packet.json`
-- `turn_*_result.json`
-- `turn_*_state.json`
-- `turn_*_agent_log.json`
-- `turn_*_event_ledger.json`
-- `turn_*_story_cards.json`
-- `turn_*_source_capture_manifest.json`
-- `turn_*_expert_review.json`
+Preferred source tiers:
 
-## 9. Quality Gates (`verify_trace`)
+- Tier A: official government, defense, treaty, budget, and statistical sources.
+- Tier B: SIPRI, CIA World Factbook, IISS-style military balance references, and other curated institutional datasets.
+- Tier C: Wikipedia/Wikidata for broad actor baseline coverage and cross-checking.
+- Tier D: scenario-specific open-source claims captured into replay artifacts.
 
-Checks include:
+Quality gates include:
 
-- Key judgments must include both supporting and contradicting evidence.
-- High-probability + high-confidence judgments must pass stricter source-independence thresholds.
-- ACH detail must include elimination trace and diagnosticity.
-- Event-to-evidence linkage must be complete (V2.3 path).
-- Reports must include actionable recommendations and trigger thresholds.
-- Live/hybrid evidence can trigger provenance warnings; `capture_policy=strict` upgrades missing provenance into a failing condition.
+- evidence and replay completeness;
+- ACH and key-judgment consistency;
+- actor JSON contract validation;
+- PMESII grounding;
+- capability and platform grounding;
+- source provenance coverage;
+- White dissent and controller violation behavior.
 
-Length policy:
-
-- `warn`: warning only.
-- `strict`: fail when below thresholds.
-- `autofill`: enable auto-expansion flow.
-
-## 10. Testing
-
-Run all tests:
+## Tests
 
 ```powershell
-python -m unittest discover -s tests -p "test_*.py"
+python -m unittest discover -s tests -p test_v2_unit.py
+python -m unittest discover -s tests -p test_pipeline.py
 ```
 
-Coverage highlights:
+Useful manual smoke checks:
 
-- ACH cell scoring and aggregation.
-- Term/parameter dictionary completeness.
-- Story-card required field shape.
-- Baseline deviation scoring.
-- Semi-tactical casualty precision guardrail.
-- Hybrid/live evidence provenance and clustering.
-- AI panel review artifacts and report sections.
-- End-to-end pipeline and deterministic seed replay.
+```powershell
+python scripts/world_kb_import.py `
+  --db out/v4_world_kb/wargame_knowledge.sqlite `
+  --mission in/mission.json `
+  --scenario in/scenario_pack.json `
+  --actor-config in/actor_config.json `
+  --collection-plan in/collection_plan.json `
+  --references-dir references `
+  --context-actor Blue
 
-## 11. Roadmap
+python scripts/run_campaign.py `
+  --mission in/mission.json `
+  --scenario in/scenario_pack.json `
+  --actor-config in/actor_config.json `
+  --collection-plan in/collection_plan.json `
+  --out out/v4_mock_run `
+  --engine gemini_actor `
+  --mock-gemini `
+  --turns 1
+```
 
-Near-term V2.5 outcome:
+## Legacy V2.5 Compatibility
 
-- Live-seeded, replay-safe prototype is in place.
-- Multi-view AI review exists, but it is still bounded and heuristic.
+The V2.5 local simulator remains available for deterministic runs, evidence-mode experiments, and regression tests. It still supports:
 
-Planned next optimization steps:
+- `synthetic`, `hybrid`, and `live_limited` evidence modes;
+- source capture manifests, claim registries, and evidence clusters;
+- AI expert review outputs;
+- baseline deviation reports;
+- event cards and semi-tactical narrative ledgers.
 
-- `Mid-term`: replace curated/snapshot-style evidence entry with research-grade ingestion, de-duplication, and claim extraction.
-- `Mid-term`: deepen the AI review layer into real adversarial deliberation, calibration, and stronger dissent handling.
-- `Long-term`: introduce actor doctrine/resource models, escalation ladders, and branch-state campaign comparison instead of mostly heuristic turn progression.
-- `Long-term`: improve decision support density so reports compare COAs and signposts, not just describe pressure trajectories.
+V2.5 artifacts and `actor_baseline_db.sqlite` remain useful for backward compatibility. V4 uses `wargame_knowledge.sqlite` as the primary knowledge layer.
 
-## 12. CI
+## Current Limits
 
-GitHub Actions workflow: [`/.github/workflows/ci.yml`](./.github/workflows/ci.yml)
+- The V4 seed database is a first-pass world knowledge layer. Some actors have thinner PMESII or capability coverage than US/CN/TW/IR/IL-style core actors.
+- Military data is model-level and banded. It supports strategic grounding and violation checks, not precise tactical adjudication.
+- Live source refresh is not a full automated ingestion system yet. V4 records provenance and provides the schema needed for later ingestion upgrades.
+- Commercial or licensed military references must be handled according to their licensing terms before being imported.
 
-- Python 3.10 / 3.11 matrix
-- Runs `python -m unittest discover -s tests -p "test_*.py"`
-
-## 13. References
+## Reference Files
 
 - [SKILL.md](./SKILL.md)
-- [references/methodology.md](./references/methodology.md)
-- [references/adjudication-rules.md](./references/adjudication-rules.md)
-- [references/source-policy.md](./references/source-policy.md)
-- [references/pmesii-indicator-dictionary.md](./references/pmesii-indicator-dictionary.md)
-- [references/red-team-playbook.md](./references/red-team-playbook.md)
+- [references/gemini-actor-workflow.md](./references/gemini-actor-workflow.md)
+- [references/controller-adjudicator-rules.md](./references/controller-adjudicator-rules.md)
 - [references/agent-handoffs.md](./references/agent-handoffs.md)
+- [references/sqlite-knowledge-schema.md](./references/sqlite-knowledge-schema.md)
+- [references/world-kb-schema.md](./references/world-kb-schema.md)
+- [references/world-kb-source-policy.md](./references/world-kb-source-policy.md)
+- [references/military-modeling-rules.md](./references/military-modeling-rules.md)
+- [references/pmesii-normalization.md](./references/pmesii-normalization.md)

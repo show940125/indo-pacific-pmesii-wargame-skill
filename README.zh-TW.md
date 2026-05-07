@@ -2,188 +2,97 @@
 
 [English Version](./README.md)
 
-一個基於多Agent設計的戰略層 PMESII 兵推 Codex Skill 的測試專案。設計時參考RAND、CSIS等頂尖智庫的兵推模擬流程，並根據Agent以及OS資訊性質進行特化調整。本Skill之特點在於，主題推演將以策略回合制方式加以呈現，直至推演到定期(回合)並產生結果。每一回合都能回放、每個結論都能追到證據，方便研究團隊複核與重跑。
+這是一個用於印太與中東戰略層 PMESII 兵推的 Codex Skill。V4 的主流程是「Gemini actor + Codex/Python controller + SQLite 世界知識庫」：Gemini 負責具體 actor 的角色內推理，Codex/Python 負責回合控制、資料抽取、規則約束、品質閘門、輸出整合與可回放紀錄。
 
-## 0. V4 更新說明
+本專案適合政策、戰略、危機管理與結構化分析演練。它有型號級軍事與 PMESII 接地，但用途是戰略模擬；即時 targeting、機密 ORBAT、精確傷亡預測不屬於這個 repo 的承諾範圍。
 
-V4 把這個專案從本地 deterministic 多代理模擬器，升級成「Gemini actor + Codex controller + SQLite 世界知識庫」的兵推框架。
+## 這是什麼
 
-相對 V2.5 的主要變更：
+目前流程是 actor-driven：
 
-- `Gemini Actor Engine`：新增 `--engine gemini_actor`，由 Gemini 風格 actor 扮演 Intel、Blue、Red、White；`--mock-gemini` 提供可重現測試路徑。
-- `Codex Controller`：Codex/Python 負責驗證 actor JSON、檢查能力接地、記錄違規，並在高風險違規時凍結 state transition。
-- `World Knowledge SQLite`：`wargame_knowledge.sqlite` 現在包含具體國家/組織 actor、scenario role mapping、PMESII metrics、source documents、field provenance、benchmark cases、quality diagnostics。
-- `Military Modeling Layer`：新增型號級軍事平台 seed、capability rules、weapon interaction rules，支援戰略層軍事接地，同時避免假精準。
-- `Actor Registry`：首批覆蓋印太與中東核心 actor，包括美中俄台日韓北韓、伊朗、以色列、波斯灣 actor、NATO/EU/GCC、Houthis、Hezbollah。
-- `Source Policy`：V4 保存分層來源、raw value、normalized score、confidence、source URL、data year，讓 Gemini 與 Codex 都能追資料來源。
+- Gemini 扮演具體 actor，例如美國、中國、台灣、日本、伊朗、以色列、NATO、GCC、Houthis、Hezbollah。
+- Codex/Python 建立 turn packet、查詢 SQLite context、驗證 actor JSON、套用約束、記錄違規、整合報告。
+- SQLite 保存 actor 身分、PMESII 指標、capability rules、軍事平台 band、來源 provenance 與 turn memory。
+- 舊的 deterministic engine 保留為本地 fallback，可用 `--engine local_synthetic` 執行。
 
-V4 仍是戰略模擬框架。它不是即時 targeting database，也不是機密 ORBAT 產品，更不是精準傷亡模型。
+抽象的 `Blue`、`Red`、`White`、`Neutral` 是 scenario role。V4 會依情境把這些 role 映射到具體國家、組織或非國家行為者。
 
-## 0a. V2.5 優化說明
-
-V2.5 優先修正了「只有來源標籤的合成證據」假裝成真正的 open-source evidence。
-
-主改動：
-
-- `Evidence Mode`：加入 `synthetic`、`hybrid`、`live_limited`。
-- `Live-Seed`：有限真實開源資料可以先 capture，再凍進 replay-safe snapshot。
-- `Provenance 欄位`：evidence 可攜帶 `source_url`、`publisher`、`published_at`、`captured_at`、`excerpt`、`capture_mode`、`claim_extraction_method`、`source_family`、`cluster_id`、`provenance_confidence`。
-- `AI Expert Review Cell`：在 base adjudication 後增加固定四角色覆核層。
-- `Replay 強化`：turn packet 可保存 `captured_evidence`、`source_capture_manifest`、`claim_registry`、`evidence_clusters`，回放時不用再抓網路。
-- `新增 artifacts`：`source_capture_manifest.json`、`claim_registry.json`、`evidence_clusters.json`、`expert_review.json`、`adjudication_dissent.json`。
-
-V2.5 仍存在之限制，且未來未必修正
-
-- 非完整 research-grade 的 OSINT ingestion platform。
-- 不使用人類專家白隊，未來仍以Agent替代。
-- 不是戰術級火力或毀傷模型。畢竟做的是PMESII，不是即時戰略。
-
-## 1. 適用範圍
-
-適合的場景：
-
-- 戰略與政策層推演（PMESII 六維）。
-- 紅藍白分工裁決。
-- 回合制、可重現、可稽核的研究流程。
-- 需要雙層報告（主管版 + 分析師版）。
-
-不適合的場景：
-
-- 戰術級射擊/毀傷精算。
-- 機密情資管線。
-- 即時 ISR 串流決策。
-
-## 2. 架構與角色
-
-核心單元：
-
-- `Supreme Orchestrator`：控制整個 run 的節奏與順序。
-- `Control Cell`：管理 seed、重現性、run 索引。
-- `Blue Command`：整合藍隊 COA（Course of Action）。
-- `Red Command`：整合紅隊反制行動。
-- `White Cell`：裁決核心，含 `Legal/ROE`、`Probability`、`Counterdeception`。
-- `Intel Cell`：蒐集、來源檢核、融合。
-- `AI Expert Review Cell`：裁決後覆核、分歧整理與信心調整。
-- `Analysis Cell`：ACH、敏感度、指標盤。
-- `Report Cell`：輸出主管版與分析師版報告。
-
-顏色角色：
-
-- `Blue`：主要防禦/維穩方（預設模板中的主體）。
-- `Red`：對抗與施壓方。
-- `White`：裁判與品質控管方（不參戰）。
-
-## 3. 端到端流程
+## V4 架構
 
 ```mermaid
 flowchart TD
-    A["MissionSpec + ScenarioPack + ActorConfig + CollectionPlan"] --> B["Turn Packet Build"]
-    B --> C["Blue COA"]
-    B --> D["Red COA"]
-    C --> E["White Adjudication"]
-    D --> E
-    E --> F["PMESII State Update"]
-    F --> G["Event Ledger (semi-tactical narrative)"]
-    G --> H["Baseline Deviation Compare (SQLite)"]
-    H --> I["ACH Matrix + Key Judgments"]
-    I --> J["Dual Reports + Timelines + Artifacts"]
-    J --> K["verify_trace Quality Gates"]
+    A["Mission + Scenario + Actor Config"] --> B["Scenario Actor Selection"]
+    B --> C["SQLite World Knowledge Context Pack"]
+    C --> D["Gemini Intel/Fusion Actor"]
+    C --> E["Gemini Blue Actor"]
+    C --> F["Gemini Red Actor"]
+    D --> G["JSON Contract Validation"]
+    E --> G
+    F --> G
+    G --> H["Gemini White Review"]
+    H --> I["Codex Controller / Judge"]
+    I --> J["Violations + State Delta + Turn Memory"]
+    J --> K["Replay Bundle + Reports + verify_trace"]
 ```
 
-每回合固定交握：
+核心分工：
 
-1. Mission Context
-2. Blue COA
-3. Red COA
-4. White Adjudication
-5. PMESII State Update
-6. Event Ledger + Story Cards
-7. Indicators + Key Judgments
-8. Next Turn Tasking
+- `Gemini actors`：扮演具體 actor，只能回傳結構化 JSON。
+- `Codex controller`：觀察、驗證、裁決、約束並解釋 actor output。
+- `Python scripts`：編排 run、建立 context pack、驗證 schema、保存 artifacts、執行 quality gates。
+- `SQLite knowledge DB`：提供 actor baseline、PMESII context、capability grounding、軍事建模資料與 provenance。
 
-## 4. 基底資料庫（SQLite）
+## V4 每回合怎麼跑
 
-執行時會自動生成 `actor_baseline_db.sqlite`。
+每個 `gemini_actor` turn 依這個 pipeline 執行：
 
-V4 另會生成 `wargame_knowledge.sqlite`。
+1. 從 `mission.json`、`scenario_pack.json`、`actor_config.json`、`collection_plan.json` 建立 turn packet。
+2. 依 scenario 選出具體 actor，映射到 Blue/Red/White/Neutral/Non-state。
+3. 查詢 `wargame_knowledge.sqlite`，取得 actor PMESII metrics、capabilities、constraints、military platforms、interaction rules、source claims 與最近 turn memory。
+4. 用 `assets/prompts/` 渲染 actor prompt。
+5. 呼叫 Gemini actor wrapper；測試時可用 `--mock-gemini` 走 deterministic mock。
+6. 依 `assets/schemas/` 驗證所有 actor response。
+7. Codex controller 檢查不存在的能力、缺乏資料庫接地、無邊界升級、忽略 countermeasure、White dissent 缺失等問題。
+8. 保存 prompt、raw response、parsed JSON、validation report、violations、controller decision 與 replay artifacts。
 
-V4 世界知識庫主要資料表：
+Gemini 的自由散文不能直接改變 state。只有通過 JSON schema 並經 controller 裁決的 state delta 會進入 replay record。
 
-- `world_actors`, `actor_aliases`, `actor_bloc_roles`
-- `actor_pmesii_metrics`, `metric_sources`
-- `military_platforms`, `platform_capabilities`, `weapon_interactions`, `force_posture`
-- `capability_rules`, `capability_triggers`, `capability_effects`, `capability_constraints`
-- `source_documents`, `source_claims`, `field_provenance`
-- `quality_diagnostics`, `benchmark_cases`
+## SQLite 世界知識庫
 
-資料表：
+V4 把資料庫升級為 `wargame_knowledge.sqlite`，定位是可追溯的 actor 與世界上下文庫。
 
-- `actors`
-- `pmesii_baseline`
-- `military_baseline`
-- `economic_baseline`
-- `diplomatic_baseline`
-- `source_registry`
+主要資料表群：
 
-目前版本重點：
+- Actor registry：`world_actors`、`actor_aliases`、`actor_bloc_roles`
+- PMESII modeling：`actor_pmesii_metrics`、`metric_sources`
+- Military modeling：`military_platforms`、`platform_capabilities`、`weapon_interactions`、`force_posture`
+- Capability rules：`capability_rules`、`capability_triggers`、`capability_effects`、`capability_constraints`
+- Provenance：`source_documents`、`source_claims`、`field_provenance`
+- Diagnostics：`quality_diagnostics`、`benchmark_cases`
+- 相容層：`actors`、`actor_doctrine`、`pmesii_indicators`、`capabilities`、`constraints`、`turn_memory`
 
-- V2.5 基線屬於「可稽核參數化基線 + 來源層級先驗」。
-- 不是完整 ORBAT 權威資料庫。
-- 可以跨 run 重用，也建議依研究需求定期覆蓋更新。
+首批 seed 聚焦印太與中東核心 actor：美國、中國、俄羅斯、台灣、日本、南韓、北韓、伊朗、以色列、沙烏地、阿聯、卡達、土耳其、英國、法國、德國、澳洲、印度、越南、菲律賓、新加坡、NATO、EU、GCC、Houthis、Hezbollah。
 
-## 5. 事件引擎（半戰術敘事）
+詳見 [references/sqlite-knowledge-schema.md](./references/sqlite-knowledge-schema.md)、[references/world-kb-schema.md](./references/world-kb-schema.md)、[references/world-kb-source-policy.md](./references/world-kb-source-policy.md)。
 
-每回合會生成固定事件型別：
+## 軍事建模層
 
-- `military_movement`
-- `simulated_engagement`
-- `sanction_action`
-- `diplomatic_mediation`
-- `info_operation`
-- `infrastructure_disruption`
+軍事層採戰略級、型號級建模。資料庫記錄 inventory band、platform family、domain、role、readiness band、effect class、countermeasure logic 與 interaction class。
 
-每筆事件固定欄位：
+它支援這些檢查：
 
-- `event_id`, `turn_id`, `actor`, `target`, `location`, `time_window`
-- `event_type`, `action_detail`, `estimated_outcome`
-- `casualty_or_loss_band`
-- `pmesii_delta`, `probability`, `confidence`
-- `evidence_ids`, `assumption_links`
+- actor 是否真的具備它宣稱使用的平台或能力；
+- capability 是否有合理 preconditions、latency、costs、risks；
+- 對手是否有相關 countermeasures；
+- event 是否與 PMESII 與 capability context 接地。
 
-精度護欄：
+軍事層使用數量 band 與效果區間，避免假精準。局部戰爭事件可作為敘事與分析素材；精確損失數字不納入目前模型。
 
-- `simulated_engagement` 不輸出精確傷亡數字，只用區間/等級描述。
+詳見 [references/military-modeling-rules.md](./references/military-modeling-rules.md)。
 
-## 6. 輸入檔案
+## 快速開始
 
-最小輸入：
-
-- `in/mission.json`
-- `in/scenario_pack.json`
-- `in/actor_config.json`
-- `in/collection_plan.json`
-
-V2.5 重要 mission 欄位：
-
-- `evidence_mode`: `synthetic|hybrid|live_limited`
-- `review_mode`: `none|ai_panel`
-- `expert_panel_profile`
-- `max_live_sources_per_turn`
-- `capture_policy`: `warn|strict`
-
-V2.5 collection / evidence 重要新增：
-
-- Collection source 可選 `url`、`query`、`rss`、`publisher`、`capture_mode`、`priority`
-- Evidence row 可包含 provenance 與 clustering 欄位，供 replay 與 audit 使用
-
-內建範本：
-
-- 通用範本：`in/*.json`
-- 美伊情境範本：`in/*_us_iran_20260305.json`
-
-## 7. CLI 用法
-
-V4 Gemini actor campaign，使用 deterministic mock actors：
+執行 deterministic V4 Gemini-actor smoke campaign：
 
 ```powershell
 python scripts/run_campaign.py `
@@ -210,7 +119,7 @@ python scripts/world_kb_import.py `
   --context-actor Blue
 ```
 
-完整 campaign：
+執行本地 deterministic fallback：
 
 ```powershell
 python scripts/run_campaign.py `
@@ -218,149 +127,108 @@ python scripts/run_campaign.py `
   --scenario in/scenario_pack.json `
   --actor-config in/actor_config.json `
   --collection-plan in/collection_plan.json `
-  --out out/run_001 `
-  --baseline-mode public_auto `
-  --event-granularity semi_tactical `
-  --fidelity-guardrail enabled `
-  --report-profile dual_layer `
-  --ach-profile full `
-  --term-annotation inline_glossary `
-  --narrative-mode event_cards `
-  --length-policy warn `
-  --min-chars-exec 2000 `
-  --min-chars-analyst 5000 `
-  --length-counting cjk_chars
+  --out out/local_synthetic_run `
+  --engine local_synthetic `
+  --turns 1
 ```
 
-V2.5 混合資料模式：
+## 輸出與回放
 
-```powershell
-python scripts/run_campaign.py `
-  --mission in/mission.json `
-  --scenario in/scenario_pack.json `
-  --actor-config in/actor_config.json `
-  --collection-plan in/collection_plan.json `
-  --out out/run_v25 `
-  --report-profile dual_layer `
-  --ach-profile full `
-  --narrative-mode event_cards `
-  --length-policy warn
-```
+典型 V4 run 會產生：
 
-品質驗證：
-
-```powershell
-python scripts/verify_trace.py `
-  --mission in/mission.json `
-  --evidence out/run_001/evidence.json `
-  --event-ledger out/run_001/event_ledger.json `
-  --baseline-deviation out/run_001/baseline_deviation_report.json `
-  --key-judgments out/run_001/key_judgments.json `
-  --ach out/run_001/ach_detailed.json `
-  --report-exec out/run_001/report_exec.md `
-  --report-analyst out/run_001/report_analyst.md `
-  --length-policy warn
-```
-
-## 8. 主要輸出
-
-決策閱讀輸出：
-
+- `wargame_knowledge.sqlite`
+- `knowledge_db_manifest.json`
+- `replay_bundle/turn_*_actor_context_pack.json`
+- `replay_bundle/turn_*_gemini_calls/`
+- `replay_bundle/turn_*_controller_decision.json`
+- `replay_bundle/turn_*_violations.json`
+- `event_ledger.json`
+- `key_judgments.json`
+- `ach_detailed.json`
 - `report_exec.md`
 - `report_analyst.md`
-- `report.md`（`report_exec.md` 相容別名）
-- `turn_timeline.md`
-- `event_timeline.md`
+- `verify_trace.json`
 
-分析與稽核輸出：
+Gemini call 目錄會保存 `prompt.md`、`raw_response.txt`、`parsed.json`、`validation.json`，方便重跑與 debug。
 
-- `ach.json`, `ach_detailed.json`
-- `key_judgments.json`
-- `sensitivity.json`
-- `evidence.json`
-- `source_capture_manifest.json`
-- `claim_registry.json`
-- `evidence_clusters.json`
-- `expert_review.json`
-- `adjudication_dissent.json`
-- `event_ledger.json`
-- `baseline_deviation_report.json`
-- `run_log.jsonl`
-- `run_artifact.json`
-- `report_metrics.json`
-- `quality_gate_warnings.json`
+## 來源政策與品質閘門
 
-回放輸出（`replay_bundle/`）：
+資料庫以可追溯為核心。高影響欄位應保存 source URL、publisher、captured time、data year、confidence 與 field-level provenance。
 
-- `turn_*_turn_packet.json`
-- `turn_*_result.json`
-- `turn_*_state.json`
-- `turn_*_agent_log.json`
-- `turn_*_event_ledger.json`
-- `turn_*_story_cards.json`
-- `turn_*_source_capture_manifest.json`
-- `turn_*_expert_review.json`
+建議來源分層：
 
-## 9. 品質閘門（verify_trace）
+- Tier A：官方政府、國防、條約、預算、統計來源。
+- Tier B：SIPRI、CIA World Factbook、IISS-style military balance references 與其他 institutional datasets。
+- Tier C：Wikipedia/Wikidata，用於 broad actor baseline coverage 與交叉檢查。
+- Tier D：scenario-specific open-source claims，保存到 replay artifacts。
 
-`verify_trace.py` 會檢查：
+品質閘門包括：
 
-- KJ 同時有支持與反證證據。
-- 高機率 + 高信心 KJ 達到更嚴的獨立來源門檻。
-- ACH 明細包含 elimination trace 與 diagnosticity。
-- 事件與證據鏈結完整（V2.3 路徑）。
-- 報告包含可執行建議與觸發門檻。
-- Live/Hybrid evidence 若缺 provenance 會出 warning；`capture_policy=strict` 時會直接升級成 fail。
+- evidence 與 replay 完整性；
+- ACH 與 key judgment 一致性；
+- actor JSON contract validation；
+- PMESII grounding；
+- capability 與 platform grounding；
+- source provenance coverage；
+- White dissent 與 controller violation behavior。
 
-字數政策：
-
-- `warn`：僅警告，不擋 run。
-- `strict`：低於門檻直接失敗。
-- `autofill`：進入自動擴寫流程。
-
-## 10. 測試
-
-執行全部測試：
+## 測試
 
 ```powershell
-python -m unittest discover -s tests -p "test_*.py"
+python -m unittest discover -s tests -p test_v2_unit.py
+python -m unittest discover -s tests -p test_pipeline.py
 ```
 
-目前覆蓋：
+常用 manual smoke checks：
 
-- ACH cell 計分與聚合邏輯。
-- 術語/參數字典完整性。
-- 故事卡欄位完整性。
-- baseline deviation 計分。
-- 半戰術精度護欄（禁止精確傷亡數字）。
-- Hybrid/Live evidence 的 provenance 與 clustering。
-- AI panel review artifact 與報告區段。
-- 端到端流程與 seed 重現性。
+```powershell
+python scripts/world_kb_import.py `
+  --db out/v4_world_kb/wargame_knowledge.sqlite `
+  --mission in/mission.json `
+  --scenario in/scenario_pack.json `
+  --actor-config in/actor_config.json `
+  --collection-plan in/collection_plan.json `
+  --references-dir references `
+  --context-actor Blue
 
-## 11. 後續預計優化
+python scripts/run_campaign.py `
+  --mission in/mission.json `
+  --scenario in/scenario_pack.json `
+  --actor-config in/actor_config.json `
+  --collection-plan in/collection_plan.json `
+  --out out/v4_mock_run `
+  --engine gemini_actor `
+  --mock-gemini `
+  --turns 1
+```
 
-V2.5 已做到的，是「live-seeded、可回放、可審計的近程版 prototype」。
+## Legacy V2.5 相容模式
 
-後續預計補強：
+V2.5 本地 simulator 仍可用於 deterministic runs、evidence-mode 實驗與 regression tests。它仍支援：
 
-- `中程`：把目前 curated/snapshot 型 evidence entry，升級成 research-grade ingestion、去重與 claim extraction pipeline。
-- `中程`：把 AI review 從 bounded heuristic persona，升級成更像真正 deliberation / calibration / dissent workflow。
-- `長程`：加入 actor doctrine / resource / escalation ladder / branch-state compare，不再主要靠 heuristic turn progression。
-- `長程`：提高決策支撐密度，讓報告能比較 COA、signpost 與切換條件，而不只是描述壓力走勢。
+- `synthetic`、`hybrid`、`live_limited` evidence modes；
+- source capture manifests、claim registries、evidence clusters；
+- AI expert review outputs；
+- baseline deviation reports；
+- event cards 與 semi-tactical narrative ledgers。
 
-## 12. CI
+V2.5 artifacts 與 `actor_baseline_db.sqlite` 保留作為相容層。V4 的主要知識層是 `wargame_knowledge.sqlite`。
 
-GitHub Actions：[`/.github/workflows/ci.yml`](./.github/workflows/ci.yml)
+## 目前限制
 
-- Python 3.10 / 3.11 matrix
-- 執行 `python -m unittest discover -s tests -p "test_*.py"`
+- V4 seed database 是第一版世界知識層。部分 actor 的 PMESII 或 capability coverage 仍比 US/CN/TW/IR/IL 等核心 actor 薄。
+- 軍事資料採型號級與 banded modeling，可支援戰略接地與違規檢查；精確戰術裁決需要另建模型。
+- Live source refresh 還未形成完整自動 ingestion system。V4 已有 provenance schema，後續可接資料更新 pipeline。
+- 商業或授權軍事資料匯入前，需要先處理授權條款。
 
-## 13. 參考文件
+## 參考文件
 
 - [SKILL.md](./SKILL.md)
-- [references/methodology.md](./references/methodology.md)
-- [references/adjudication-rules.md](./references/adjudication-rules.md)
-- [references/source-policy.md](./references/source-policy.md)
-- [references/pmesii-indicator-dictionary.md](./references/pmesii-indicator-dictionary.md)
-- [references/red-team-playbook.md](./references/red-team-playbook.md)
+- [references/gemini-actor-workflow.md](./references/gemini-actor-workflow.md)
+- [references/controller-adjudicator-rules.md](./references/controller-adjudicator-rules.md)
 - [references/agent-handoffs.md](./references/agent-handoffs.md)
+- [references/sqlite-knowledge-schema.md](./references/sqlite-knowledge-schema.md)
+- [references/world-kb-schema.md](./references/world-kb-schema.md)
+- [references/world-kb-source-policy.md](./references/world-kb-source-policy.md)
+- [references/military-modeling-rules.md](./references/military-modeling-rules.md)
+- [references/pmesii-normalization.md](./references/pmesii-normalization.md)
