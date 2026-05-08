@@ -28,7 +28,14 @@ from common import (
     render_exec_report_markdown,
     turn_story_cards,
 )
-from gemini_actor import controller_decision, validate_actor_response
+from gemini_actor import (
+    build_concrete_actor_plan,
+    controller_decision,
+    detect_alliance_dissent,
+    detect_proxy_autonomy_risk,
+    synthesize_multi_actor,
+    validate_actor_response,
+)
 from knowledge_db import (
     actor_context_pack,
     connect,
@@ -582,6 +589,50 @@ class V2UnitTests(unittest.TestCase):
             )
             self.assertNotEqual(error.returncode, 0)
             self.assertFalse(json.loads(error.stdout)["ok"])
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_v45_reseed_clears_current_role_map_and_concrete_context(self) -> None:
+        tmp = Path(tempfile.mkdtemp(prefix="pmesii_v45_roles_"))
+        try:
+            db_path = tmp / "wargame_knowledge.sqlite"
+            seed_database(db_path, {"topic": "Taiwan Strait blockade", "geo_scope": "台海"}, {}, {}, {}, SKILL_DIR / "references")
+            with connect(db_path) as conn:
+                self.assertTrue(any(row["actor_id"] == "TW" for row in conn.execute("SELECT actor_id FROM actor_bloc_roles WHERE scenario_id='current'").fetchall()))
+            mission_me = json.loads((SKILL_DIR / "in" / "mission_us_iran_20260508.json").read_text(encoding="utf-8"))
+            scenario_me = json.loads((SKILL_DIR / "in" / "scenario_pack_us_iran_20260508.json").read_text(encoding="utf-8"))
+            seed_database(db_path, mission_me, scenario_me, {}, {}, SKILL_DIR / "references")
+            with connect(db_path) as conn:
+                rows = [dict(row) for row in conn.execute("SELECT role, actor_id FROM actor_bloc_roles WHERE scenario_id='current'").fetchall()]
+            self.assertFalse(any(row["actor_id"] == "TW" for row in rows))
+            self.assertTrue(any(row["actor_id"] == "IR" and row["role"] == "Red" for row in rows))
+            pack = actor_context_pack(db_path, "IR", 1, {"P": 50, "M": 80, "E": 70, "S": 50, "I": 75, "Infra": 70}, scenario_role="Red")
+            self.assertEqual(pack["concrete_actor_id"], "IR")
+            self.assertEqual(pack["scenario_role"], "Red")
+            self.assertIn("HOUTHIS", pack["role_peers"])
+            self.assertIn("US", pack["opposing_actors"])
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_v45_actor_plan_and_synthesis_diagnostics(self) -> None:
+        tmp = Path(tempfile.mkdtemp(prefix="pmesii_v45_plan_"))
+        try:
+            db_path = tmp / "wargame_knowledge.sqlite"
+            mission_me = json.loads((SKILL_DIR / "in" / "mission_us_iran_20260508.json").read_text(encoding="utf-8"))
+            scenario_me = json.loads((SKILL_DIR / "in" / "scenario_pack_us_iran_20260508.json").read_text(encoding="utf-8"))
+            seed_database(db_path, mission_me, scenario_me, {}, {}, SKILL_DIR / "references")
+            plan = build_concrete_actor_plan(db_path, "core")
+            self.assertEqual(len(plan), 7)
+            self.assertEqual({row["actor_id"] for row in plan}, {"US", "IL", "SA", "AE", "IR", "HOUTHIS", "HEZBOLLAH"})
+            payloads = {
+                "US_Blue": {"parsed": {"actor_id": "US_Blue", "scenario_role": "Blue", "concrete_actor_id": "US", "subagent_actions": [{"dimension": "M"}], "risk_acceptance": 0.4}, "validation": {}},
+                "IL_Blue": {"parsed": {"actor_id": "IL_Blue", "scenario_role": "Blue", "concrete_actor_id": "IL", "subagent_actions": [{"dimension": "M"}], "risk_acceptance": 0.8, "dissent_from_bloc": ["prefers wider strike window"]}, "validation": {}},
+                "HOUTHIS_Red": {"parsed": {"actor_id": "HOUTHIS_Red", "scenario_role": "Red", "concrete_actor_id": "HOUTHIS", "subagent_actions": [{"dimension": "Infra"}], "risk_acceptance": 0.7}, "validation": {}},
+            }
+            synthesis = synthesize_multi_actor(payloads, plan)
+            self.assertEqual(synthesis["bloc_action_counts"]["Blue"], 2)
+            self.assertTrue(detect_alliance_dissent(synthesis))
+            self.assertTrue(detect_proxy_autonomy_risk(synthesis))
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 

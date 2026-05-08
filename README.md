@@ -1,8 +1,8 @@
-# Indo-Pacific PMESII Wargame Skill (V4)
+# Indo-Pacific PMESII Wargame Skill (V4.5)
 
 [繁體中文說明 / Traditional Chinese](./README.zh-TW.md)
 
-This repository is a Codex skill for strategic-level Indo-Pacific and Middle East PMESII wargames. V4 uses a Gemini actor engine, a Codex/Python controller, and a SQLite world knowledge database so that every turn is role-grounded, rule-checked, and replayable.
+This repository is a Codex skill for strategic-level Indo-Pacific and Middle East PMESII wargames. V4.5 uses concrete Gemini actor execution, a Codex/Python controller, and a SQLite world knowledge database so that every turn is role-grounded, rule-checked, and replayable.
 
 V4 is designed for policy, strategy, crisis-management, and structured analytic exercises. It uses model-level military and PMESII grounding, but it does not provide real-time targeting, classified ORBAT, or precise casualty prediction.
 
@@ -11,13 +11,14 @@ V4 is designed for policy, strategy, crisis-management, and structured analytic 
 The current workflow is actor-driven:
 
 - Gemini plays concrete actors such as the United States, China, Taiwan, Japan, Iran, Israel, NATO, GCC, Houthis, or Hezbollah.
+- V4.5 calls every concrete actor separately each turn, then synthesizes alliance dissent, proxy autonomy risk, and Blue/Red aggregate COAs.
 - Codex/Python prepares turn packets, queries SQLite context, validates actor JSON, applies constraints, records violations, and integrates the report.
 - SQLite stores actor identity, PMESII indicators, capability rules, military platform bands, source provenance, and turn memory.
 - The legacy deterministic engine remains available as a local fallback through `--engine local_synthetic`.
 
 The abstract `Blue`, `Red`, `White`, and `Neutral` labels are scenario roles. V4 maps them onto concrete countries, organizations, or non-state actors for each run.
 
-## V4 Architecture
+## V4.5 Architecture
 
 ```mermaid
 flowchart TD
@@ -42,7 +43,7 @@ Core responsibilities:
 - `Python scripts`: orchestrate runs, build context packs, validate schemas, persist artifacts, and run quality gates.
 - `SQLite knowledge DB`: provide reusable actor baselines, PMESII context, capability grounding, military modeling data, and provenance.
 
-## How a V4 Turn Runs
+## How a V4.5 Turn Runs
 
 Each `gemini_actor` turn follows this pipeline:
 
@@ -50,12 +51,30 @@ Each `gemini_actor` turn follows this pipeline:
 2. Select concrete actors for the scenario and map them to Blue/Red/White/Neutral/Non-state roles.
 3. Query `data/wargame_knowledge.sqlite` for actor PMESII metrics, capabilities, constraints, military platforms, interaction rules, source claims, and recent turn memory.
 4. Render actor prompts from `assets/prompts/`.
-5. Call Gemini through the actor wrapper, or use deterministic mock actors with `--mock-gemini`.
+5. Call Gemini through the actor wrapper for every concrete actor, plus Intel/Fusion and White support calls. Use deterministic mock actors with `--mock-gemini` for regression tests.
 6. Validate every actor response against JSON schemas under `assets/schemas/`.
 7. Run Codex controller checks for unsupported capabilities, missing database grounding, unbounded escalation, ignored countermeasures, and missing White dissent.
 8. Persist prompts, raw responses, parsed JSON, validation reports, violations, controller decisions, and replay artifacts.
 
-Gemini actor prose is never allowed to mutate state directly. Only validated JSON plus controller-adjudicated deltas enter the replay record.
+Gemini actor prose is never allowed to mutate state directly. Only validated JSON plus controller-adjudicated deltas enter the replay record. Live Gemini calls support `--gemini-launch-mode auto|popen_headless|pty_interactive|mcp`; failed live calls fall back transparently and record the reason in `validation.json`.
+
+## Gemini CLI OAuth Diagnostics
+
+Google One / `oauth-personal` CLI auth can behave differently in an interactive terminal and a Codex subprocess. Use the diagnostics script before a long live run:
+
+```powershell
+python scripts/diagnose_gemini_cli.py --timeout 60 --out out/gemini_cli_diagnostics.json
+```
+
+The diagnostic records CLI path/version, selected auth type, token expiry, trusted folders, and smoke-test behavior for direct `-p`, stdin pipe, PTY interactive, and MCP wrapper routes. It redacts tokens and keys.
+
+If Gemini enters an auth/consent loop, open the project-scoped repair window:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/open_gemini_oauth_repair.ps1
+```
+
+Inside that window, run `/auth`, choose `Sign in with Google`, send a short smoke prompt, and then `/quit`. This keeps the Google One OAuth path and does not require an API key.
 
 ## SQLite World Knowledge DB
 
@@ -134,7 +153,7 @@ python scripts/run_campaign.py `
   --turns 1
 ```
 
-Run the bundled May 8, 2026 US-Iran/Hormuz example for five V4 turns:
+Run the bundled May 8, 2026 US-Iran/Hormuz example for five V4.5 turns:
 
 ```powershell
 python scripts/run_campaign.py `
@@ -142,9 +161,12 @@ python scripts/run_campaign.py `
   --scenario in/scenario_pack_us_iran_20260508.json `
   --actor-config in/actor_config_us_iran_20260508.json `
   --collection-plan in/collection_plan_us_iran_20260508.json `
-  --out out/us_iran_20260508_v4_example_5turn `
+  --out out/us_iran_20260508_v45_example_5turn `
   --engine gemini_actor `
-  --mock-gemini `
+  --actor-execution v45_concrete `
+  --actor-scope core `
+  --gemini-launch-mode auto `
+  --gemini-timeout 180 `
   --turns 5 `
   --report-profile dual_layer `
   --ach-profile full `
@@ -177,7 +199,7 @@ Typical V4 knowledge and run outputs include:
 - `data/wargame_knowledge.sqlite`
 - `out/<run>/knowledge_db_manifest.json`
 - `replay_bundle/turn_*_actor_context_pack.json`
-- `replay_bundle/turn_*_gemini_calls/`
+- `replay_bundle/turn_*_actor_calls/`
 - `replay_bundle/turn_*_controller_decision.json`
 - `replay_bundle/turn_*_violations.json`
 - `event_ledger.json`
@@ -187,7 +209,7 @@ Typical V4 knowledge and run outputs include:
 - `report_analyst.md`
 - `verify_trace.json`
 
-`data/wargame_knowledge.sqlite` is the long-lived local knowledge DB. `out/<run>/knowledge_db_manifest.json` records the DB state used by a run, and `replay_bundle/turn_*_actor_context_pack.json` records what each actor saw during the turn. Each Gemini call directory stores `prompt.md`, `raw_response.txt`, `parsed.json`, and `validation.json` when the actor pipeline runs.
+`data/wargame_knowledge.sqlite` is the long-lived local knowledge DB. `out/<run>/knowledge_db_manifest.json` records the DB state used by a run, and `replay_bundle/turn_*_actor_context_pack.json` records what each actor saw during the turn. Each Gemini call directory stores `prompt.md`, `raw_response.txt`, `parsed.json`, and `validation.json` when the actor pipeline runs. V4.5 also writes `turn_*_multi_actor_synthesis.json`, `turn_*_alliance_dissent.json`, and `turn_*_proxy_autonomy_risk.json`.
 
 ## Source Policy and Quality Gates
 

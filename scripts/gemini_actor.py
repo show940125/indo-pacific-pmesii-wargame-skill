@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import shutil
 import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
@@ -24,9 +27,14 @@ from common import (
     stable_hash,
     write_json,
 )
-from knowledge_db import actor_context_pack, manifest, record_turn_memory, seed_database
+from knowledge_db import actor_context_pack, connect, manifest, record_turn_memory, seed_database
 
 ACTOR_ROLES = ["Intel", "Blue", "Red", "White"]
+GEMINI_LAUNCH_MODES = {"auto", "popen_headless", "pty_interactive", "mcp"}
+V45_CORE_ACTORS = {
+    "Blue": ["US", "IL", "SA", "AE"],
+    "Red": ["IR", "HOUTHIS", "HEZBOLLAH"],
+}
 PROMPT_FILES = {
     "Blue": "blue_actor.md",
     "Red": "red_actor.md",
@@ -64,9 +72,16 @@ def _extract_json(text: str) -> dict[str, Any]:
     return payload
 
 
+def _actor_role(actor_id: str, context_pack: dict[str, Any]) -> str:
+    if actor_id in {"Intel", "White"}:
+        return actor_id
+    return str(context_pack.get("scenario_role") or actor_id)
+
+
 def _mock_actor_response(actor_id: str, context_pack: dict[str, Any], state: dict[str, float], turn_id: int, seed: int) -> dict[str, Any]:
     rng = make_rng(seed, turn_id, f"gemini-mock:{actor_id}")
     top_dimensions = sorted(state, key=lambda key: float(state.get(key, 0.0)), reverse=True)[:3]
+    role = _actor_role(actor_id, context_pack)
     if actor_id == "Intel":
         return {
             "actor_id": "Intel",
@@ -79,8 +94,8 @@ def _mock_actor_response(actor_id: str, context_pack: dict[str, Any], state: dic
             "source_ids": [row.get("source_id", row.get("source_name", "SRC_UNKNOWN")) for row in context_pack.get("sources", [])[:3]],
             "uncertainties": ["公開來源可能低估非公開溝通。"],
         }
-    if actor_id in {"Blue", "Red"}:
-        direction = 1.0 if actor_id == "Blue" else -1.0
+    if role in {"Blue", "Red"}:
+        direction = 1.0 if role == "Blue" else -1.0
         actions = []
         expected_effect = []
         concrete = context_pack.get("concrete_actor_context") or {}
@@ -92,7 +107,7 @@ def _mock_actor_response(actor_id: str, context_pack: dict[str, Any], state: dic
             platform = platforms[len(actions) % len(platforms)] if platforms else {}
             severity = round(max(0.2, min(0.9, 0.42 + abs(float(state[dimension]) - 50.0) / 120.0 + rng.uniform(-0.05, 0.08))), 2)
             delta = round(direction * severity * rng.uniform(0.8, 2.4), 2)
-            action = "stabilize" if actor_id == "Blue" else "pressure"
+            action = "stabilize" if role == "Blue" else "pressure"
             actions.append(
                 {
                     "subagent": f"{actor_id}-{concrete_actor_id}-{dimension}",
@@ -100,7 +115,7 @@ def _mock_actor_response(actor_id: str, context_pack: dict[str, Any], state: dic
                     "action": f"{str(concrete_actor_id).lower()}_{dimension.lower()}_{action}",
                     "severity": severity,
                     "confidence": round(0.58 + rng.uniform(0.0, 0.18), 2),
-                    "rationale": f"{actor_id} slot is mapped to {concrete_actor_id}; action uses seeded V4 world context.",
+                    "rationale": f"{actor_id} is a concrete {role} actor mapped to {concrete_actor_id}; action uses seeded V4.5 world context.",
                     "expected_delta": delta,
                     "db_refs": [f"pmesii_indicators:{dimension}", f"actor_doctrine:{actor_id}:{dimension}", f"world_actors:{concrete_actor_id}"],
                     "capability_refs": [cap.get("capability_id", f"CAP_UNKNOWN_{dimension}")],
@@ -110,8 +125,9 @@ def _mock_actor_response(actor_id: str, context_pack: dict[str, Any], state: dic
             expected_effect.append({"dimension": dimension, "delta": delta})
         return {
             "actor_id": actor_id,
+            "scenario_role": role,
             "turn_id": turn_id,
-            "intent": "stabilize_regional_posture" if actor_id == "Blue" else "raise_cost_and_pressure",
+            "intent": "stabilize_regional_posture" if role == "Blue" else "raise_cost_and_pressure",
             "action_bundle": [{"dimension": row["dimension"], "action": row["action"], "severity": row["severity"]} for row in actions],
             "subagent_actions": actions,
             "resource_cost": round(sum(row["severity"] for row in actions) * 3.0, 2),
@@ -120,6 +136,10 @@ def _mock_actor_response(actor_id: str, context_pack: dict[str, Any], state: dic
             "constraints_considered": ["C_PUBLIC_ONLY", "C_STRATEGIC_LEVEL", "C_JSON_CONTRACT"],
             "dissent_or_uncertainty": ["效果依賴對手是否把訊號解讀為有限壓力。"],
             "concrete_actor_id": concrete_actor_id,
+            "risk_acceptance": round(0.35 + rng.uniform(0.0, 0.45), 2),
+            "redlines": [f"{concrete_actor_id} rejects uncontrolled escalation beyond stated political authorization."],
+            "coordination_preferences": [f"Coordinate with {', '.join(context_pack.get('alliance_peers', [])[:3]) or 'role peers'} before crossing escalation thresholds."],
+            "dissent_from_bloc": [f"{concrete_actor_id} may resist bloc consensus if domestic or infrastructure exposure rises."] if rng.random() > 0.58 else [],
         }
     return {
         "actor_id": "White",
@@ -136,7 +156,8 @@ def validate_actor_response(actor_id: str, payload: dict[str, Any], context_pack
     violations: list[dict[str, Any]] = []
     if str(payload.get("actor_id", "")).lower() != actor_id.lower():
         violations.append({"rule_id": "ACTOR_ID_MISMATCH", "severity": "high", "message": f"Expected {actor_id} actor_id."})
-    if actor_id in {"Blue", "Red"}:
+    role = _actor_role(actor_id, context_pack or {})
+    if role in {"Blue", "Red"}:
         actions = payload.get("subagent_actions", [])
         if not isinstance(actions, list) or not actions:
             violations.append({"rule_id": "ACTOR_ACTIONS_REQUIRED", "severity": "high", "message": "Actor COA requires subagent_actions."})
@@ -175,7 +196,9 @@ def validate_actor_response(actor_id: str, payload: dict[str, Any], context_pack
 
 
 def render_actor_prompt(actor_id: str, context_pack: dict[str, Any], turn_packet: dict[str, Any], scenario: dict[str, Any]) -> str:
-    template = _read_prompt(actor_id)
+    role = _actor_role(actor_id, context_pack)
+    prompt_key = role if role in PROMPT_FILES else actor_id
+    template = _read_prompt(prompt_key)
     payload = {
         "actor_id": actor_id,
         "context_pack": context_pack,
@@ -199,31 +222,334 @@ def call_gemini_actor(
     state: dict[str, float],
     turn_id: int,
     seed: int,
-    timeout_sec: int = 120,
+    timeout_sec: int = 180,
+    launch_mode: str = "auto",
+    gemini_model: str | None = None,
 ) -> dict[str, Any]:
     target = Path(call_dir)
     target.mkdir(parents=True, exist_ok=True)
-    (target / "prompt.md").write_text(prompt, encoding="utf-8")
-    validation: dict[str, Any] = {"actor_id": actor_id, "mock": mock, "parser": "json_object"}
+    prompt_path = target / "prompt.md"
+    prompt_path.write_text(prompt, encoding="utf-8")
+    validation: dict[str, Any] = {
+        "actor_id": actor_id,
+        "mock": mock,
+        "parser": "json_object",
+        "requested_launch_mode": launch_mode,
+        "gemini_model": gemini_model,
+    }
     if mock:
         parsed = _mock_actor_response(actor_id, context_pack, state, turn_id, seed)
         raw = json.dumps(parsed, ensure_ascii=False, indent=2)
     else:
-        command = ["gemini", "-p", prompt]
-        proc = subprocess.run(command, text=True, encoding="utf-8", capture_output=True, timeout=timeout_sec)
-        raw = proc.stdout if proc.returncode == 0 else proc.stdout + "\n" + proc.stderr
-        validation["returncode"] = proc.returncode
-        if proc.returncode != 0:
-            parsed = _mock_actor_response(actor_id, context_pack, state, turn_id, seed)
-            validation["fallback"] = "mock_after_gemini_cli_failure"
+        modes = [launch_mode]
+        if launch_mode == "auto":
+            modes = ["pty_interactive", "popen_headless", "mcp"]
+        last_result: dict[str, Any] | None = None
+        for mode in modes:
+            if mode not in GEMINI_LAUNCH_MODES:
+                last_result = {"raw": f"Unsupported Gemini launch mode: {mode}", "returncode": 2, "launch_mode": mode}
+                continue
+            try:
+                if mode == "pty_interactive":
+                    result = _run_gemini_pty(prompt_path, timeout_sec, gemini_model)
+                elif mode == "popen_headless":
+                    result = _run_gemini_popen_headless(prompt, timeout_sec, gemini_model)
+                elif mode == "mcp":
+                    result = _run_gemini_mcp(prompt, timeout_sec)
+                else:
+                    result = {"raw": f"Unsupported Gemini launch mode: {mode}", "returncode": 2, "launch_mode": mode}
+            except Exception as exc:
+                result = {"raw": str(exc), "returncode": None, "launch_mode": mode, "exception": type(exc).__name__}
+            last_result = result
+            raw_candidate = str(result.get("raw", ""))
+            validation.setdefault("attempts", []).append(
+                {
+                    "launch_mode": result.get("launch_mode", mode),
+                    "returncode": result.get("returncode"),
+                    "elapsed_sec": result.get("elapsed_sec"),
+                    "fallback_kind": _fallback_kind(raw_candidate, result.get("returncode"), bool(result.get("timed_out"))),
+                    "raw_excerpt": raw_candidate[:600],
+                }
+            )
+            if result.get("returncode") == 0:
+                try:
+                    parsed = _extract_json(raw_candidate)
+                    raw = raw_candidate
+                    validation["mock"] = False
+                    validation["launch_mode"] = result.get("launch_mode", mode)
+                    validation["returncode"] = result.get("returncode")
+                    validation["elapsed_sec"] = result.get("elapsed_sec")
+                    break
+                except Exception as exc:
+                    validation.setdefault("attempts", [])[-1]["fallback_kind"] = "json_parse_failure"
+                    validation.setdefault("attempts", [])[-1]["parse_error"] = str(exc)
+            if launch_mode != "auto":
+                break
         else:
-            parsed = _extract_json(raw)
+            parsed = _mock_actor_response(actor_id, context_pack, state, turn_id, seed)
+            raw = str((last_result or {}).get("raw", ""))
+            fallback_kind = _fallback_kind(raw, (last_result or {}).get("returncode"), bool((last_result or {}).get("timed_out")))
+            validation["mock"] = True
+            validation["fallback"] = f"mock_after_gemini_{fallback_kind}"
+            validation["fallback_kind"] = fallback_kind
+            validation["fallback_reason"] = raw[:1000] or "Gemini CLI did not produce a valid JSON response."
+        if "parsed" not in locals():
+            parsed = _mock_actor_response(actor_id, context_pack, state, turn_id, seed)
+            raw = str((last_result or {}).get("raw", ""))
+            fallback_kind = _fallback_kind(raw, (last_result or {}).get("returncode"), bool((last_result or {}).get("timed_out")))
+            validation["mock"] = True
+            validation["fallback"] = f"mock_after_gemini_{fallback_kind}"
+            validation["fallback_kind"] = fallback_kind
+            validation["fallback_reason"] = raw[:1000] or "Gemini CLI did not produce a valid JSON response."
     violations = validate_actor_response(actor_id, parsed, context_pack)
     validation["violations"] = violations
     (target / "raw_response.txt").write_text(raw, encoding="utf-8")
     write_json(target / "parsed.json", parsed)
     write_json(target / "validation.json", validation)
     return {"parsed": parsed, "raw": raw, "validation": validation}
+
+
+def _kill_process_tree(pid: int) -> None:
+    if os.name == "nt":
+        subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], text=True, capture_output=True)
+    else:
+        try:
+            os.killpg(pid, 9)
+        except Exception:
+            try:
+                os.kill(pid, 9)
+            except Exception:
+                pass
+
+
+def _resolve_gemini_command() -> str:
+    candidates = ["gemini.cmd", "gemini.exe", "gemini"] if os.name == "nt" else ["gemini"]
+    for candidate in candidates:
+        resolved = shutil.which(candidate)
+        if resolved:
+            return resolved
+    return "gemini"
+
+
+def _resolve_node_command() -> str:
+    return shutil.which("node.exe" if os.name == "nt" else "node") or "node"
+
+
+def _gemini_node_pty_require() -> str | None:
+    npm_root = Path(os.environ.get("APPDATA", "")) / "npm" / "node_modules" / "@google" / "gemini-cli" / "node_modules" / "node-pty"
+    if npm_root.exists():
+        return str(npm_root).replace("\\", "/")
+    return None
+
+
+def _fallback_kind(raw: str, returncode: int | None = None, timed_out: bool = False) -> str:
+    lower = raw.lower()
+    if "transport closed" in lower:
+        return "mcp_transport_closed"
+    if "manual authorization is required" in raw or returncode == 41:
+        return "auth_required"
+    if "opening authentication page" in lower or "how would you like to authenticate" in lower or "get started" in lower:
+        return "auth_consent_loop"
+    if "authentication consent could not be obtained" in lower or "authentication cancelled" in lower:
+        return "auth_consent_loop"
+    if timed_out and raw.strip():
+        return "timeout_after_partial_output"
+    if timed_out:
+        return "timeout_no_output"
+    return "cli_failure"
+
+
+def _run_gemini_popen_headless(prompt: str, timeout_sec: int, gemini_model: str | None = None) -> dict[str, Any]:
+    command = [_resolve_gemini_command(), "--skip-trust", "--prompt", "", "--output-format", "text", "--approval-mode", "plan"]
+    if gemini_model:
+        command[1:1] = ["--model", gemini_model]
+    env = dict(os.environ)
+    env.setdefault("NO_COLOR", "1")
+    env.setdefault("TERM", "xterm-256color")
+    env.pop("CI", None)
+    started = time.monotonic()
+    creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
+    proc = subprocess.Popen(
+        command,
+        text=True,
+        encoding="utf-8",
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        stdin=subprocess.PIPE,
+        env=env,
+        creationflags=creationflags,
+    )
+    try:
+        stdout, stderr = proc.communicate(input=prompt, timeout=timeout_sec)
+        raw = (stdout or "") if proc.returncode == 0 else (stdout or "") + "\n" + (stderr or "")
+        return {
+            "raw": raw,
+            "returncode": proc.returncode,
+            "command": command[0],
+            "launch_mode": "popen_headless",
+            "elapsed_sec": round(time.monotonic() - started, 3),
+        }
+    except subprocess.TimeoutExpired:
+        _kill_process_tree(proc.pid)
+        try:
+            stdout, stderr = proc.communicate(timeout=10)
+        except subprocess.TimeoutExpired:
+            stdout, stderr = "", "Gemini CLI process tree did not exit after hard cleanup."
+        raw = (stdout or "") + "\n" + (stderr or "")
+        return {
+            "raw": raw,
+            "returncode": proc.returncode,
+            "command": command[0],
+            "launch_mode": "popen_headless",
+            "elapsed_sec": round(time.monotonic() - started, 3),
+            "timed_out": True,
+        }
+
+
+def _pty_runner_script() -> str:
+    return r"""
+const fs = require('fs');
+const pty = require(process.env.NODE_PTY_REQUIRE);
+const gemini = process.env.GEMINI_CMD;
+const promptPath = process.env.GEMINI_PROMPT_PATH;
+const timeoutMs = Number(process.env.GEMINI_TIMEOUT_MS || '180000');
+const model = process.env.GEMINI_MODEL || '';
+const prompt = fs.readFileSync(promptPath, 'utf8');
+const args = ['--skip-trust', '--approval-mode', 'plan', '--output-format', 'text'];
+if (model) args.unshift(model), args.unshift('--model');
+const proc = pty.spawn(gemini, args, {
+  name: 'xterm-256color',
+  cols: 140,
+  rows: 45,
+  cwd: process.env.GEMINI_CWD || process.cwd(),
+  env: {...process.env, TERM: 'xterm-256color'}
+});
+let raw = '';
+let sent = false;
+let done = false;
+function stripAnsi(value) {
+  return value.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '').replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, '');
+}
+function maybeJson(text) {
+  const clean = stripAnsi(text);
+  const start = clean.indexOf('{');
+  const end = clean.lastIndexOf('}');
+  if (start < 0 || end <= start) return false;
+  try { JSON.parse(clean.slice(start, end + 1)); return true; } catch { return false; }
+}
+function finish(status, code) {
+  if (done) return;
+  done = true;
+  const payload = {status, raw: stripAnsi(raw), raw_length: raw.length};
+  console.log('\n__GEMINI_PTY_RESULT_START__');
+  console.log(JSON.stringify(payload));
+  console.log('__GEMINI_PTY_RESULT_END__');
+  try { proc.write('/quit\r'); } catch {}
+  setTimeout(() => { try { proc.kill(); } catch {}; process.exit(code); }, 1000);
+}
+function sendPrompt() {
+  if (sent) return;
+  sent = true;
+  proc.write(prompt.replace(/\r?\n/g, '\n') + '\r');
+}
+proc.onData((data) => {
+  raw += data;
+  const clean = stripAnsi(raw);
+  if (!sent && /(Ask Gemini|Type your message|Ready|>)/i.test(clean)) {
+    setTimeout(sendPrompt, 250);
+  }
+  if (/Manual authorization is required|Authentication cancelled|Authentication consent could not be obtained|How would you like to authenticate|Get started/i.test(clean)) {
+    finish('auth_consent_loop', 3);
+  }
+  if (sent && maybeJson(raw)) {
+    finish('ok', 0);
+  }
+});
+proc.onExit(({exitCode}) => {
+  if (!done) finish('exit_' + exitCode, exitCode || 1);
+});
+setTimeout(sendPrompt, 8000);
+setTimeout(() => finish(raw.trim() ? 'timeout_after_partial_output' : 'timeout_no_output', 2), timeoutMs);
+"""
+
+
+def _parse_pty_result(stdout: str) -> tuple[str, str]:
+    match = re.search(r"__GEMINI_PTY_RESULT_START__\s*(\{.*?\})\s*__GEMINI_PTY_RESULT_END__", stdout, flags=re.DOTALL)
+    if not match:
+        return "unknown", stdout
+    try:
+        payload = json.loads(match.group(1))
+    except json.JSONDecodeError:
+        return "unknown", stdout
+    return str(payload.get("status", "unknown")), str(payload.get("raw", ""))
+
+
+def _run_gemini_pty(prompt_path: Path, timeout_sec: int, gemini_model: str | None = None) -> dict[str, Any]:
+    node_pty = _gemini_node_pty_require()
+    if not node_pty:
+        return {
+            "raw": "Gemini CLI bundled node-pty was not found.",
+            "returncode": 127,
+            "command": _resolve_gemini_command(),
+            "launch_mode": "pty_interactive",
+            "fallback_hint": "node_pty_missing",
+        }
+    runner_path = prompt_path.parent / "_gemini_pty_runner.js"
+    runner_path.write_text(_pty_runner_script(), encoding="utf-8")
+    env = dict(os.environ)
+    env.update(
+        {
+            "NODE_PTY_REQUIRE": node_pty,
+            "GEMINI_CMD": _resolve_gemini_command(),
+            "GEMINI_PROMPT_PATH": str(prompt_path),
+            "GEMINI_TIMEOUT_MS": str(max(1, timeout_sec) * 1000),
+            "GEMINI_CWD": str(_skill_dir()),
+            "TERM": "xterm-256color",
+        }
+    )
+    if gemini_model:
+        env["GEMINI_MODEL"] = gemini_model
+    env.pop("CI", None)
+    started = time.monotonic()
+    try:
+        result = subprocess.run(
+            [_resolve_node_command(), str(runner_path)],
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            timeout=timeout_sec + 15,
+            env=env,
+            check=False,
+        )
+        status, raw = _parse_pty_result((result.stdout or "") + "\n" + (result.stderr or ""))
+        return {
+            "raw": raw,
+            "returncode": result.returncode,
+            "command": _resolve_gemini_command(),
+            "launch_mode": "pty_interactive",
+            "pty_status": status,
+            "elapsed_sec": round(time.monotonic() - started, 3),
+        }
+    except subprocess.TimeoutExpired as exc:
+        raw = ((exc.stdout or "") if isinstance(exc.stdout, str) else "") + "\n" + ((exc.stderr or "") if isinstance(exc.stderr, str) else "")
+        return {
+            "raw": raw,
+            "returncode": None,
+            "command": _resolve_gemini_command(),
+            "launch_mode": "pty_interactive",
+            "elapsed_sec": round(time.monotonic() - started, 3),
+            "timed_out": True,
+        }
+
+
+def _run_gemini_mcp(prompt: str, timeout_sec: int) -> dict[str, Any]:
+    return {
+        "raw": "MCP launch mode is only available inside Codex tool runtime; standalone skill runner cannot invoke MCP namespaces directly.",
+        "returncode": 127,
+        "command": "mcp__gemini_cli_research__.gemini_research",
+        "launch_mode": "mcp",
+        "fallback_hint": "mcp_unavailable_in_subprocess",
+    }
 
 
 def _coa_from_actor(actor_id: str, response: dict[str, Any]) -> dict[str, Any]:
@@ -261,6 +587,137 @@ def controller_decision(actor_responses: dict[str, dict[str, Any]], state: dict[
     }
 
 
+def _scenario_role_rows(db_path: str | Path) -> list[dict[str, Any]]:
+    conn = connect(db_path)
+    try:
+        return [
+            dict(row)
+            for row in conn.execute(
+                "SELECT role, actor_id FROM actor_bloc_roles WHERE scenario_id='current' ORDER BY role, actor_id"
+            ).fetchall()
+        ]
+    finally:
+        conn.close()
+
+
+def build_concrete_actor_plan(db_path: str | Path, actor_scope: str = "core") -> list[dict[str, str]]:
+    by_role: dict[str, list[str]] = {}
+    for row in _scenario_role_rows(db_path):
+        by_role.setdefault(str(row["role"]), []).append(str(row["actor_id"]))
+    plan: list[dict[str, str]] = []
+    if actor_scope == "core":
+        for role, actor_ids in V45_CORE_ACTORS.items():
+            available = by_role.get(role, [])
+            for actor_id in actor_ids:
+                if actor_id in available:
+                    plan.append({"actor_id": actor_id, "scenario_role": role, "call_id": f"{actor_id}_{role}"})
+        if len(plan) == sum(len(actor_ids) for actor_ids in V45_CORE_ACTORS.values()):
+            return plan
+        plan = []
+    roles = ["Blue", "Red"] if actor_scope == "expanded" else ["Blue", "Red", "Neutral", "Non-state"]
+    for role in roles:
+        for actor_id in by_role.get(role, []):
+            plan.append({"actor_id": actor_id, "scenario_role": role, "call_id": f"{actor_id}_{role}"})
+    return plan
+
+
+def synthesize_multi_actor(actor_payloads: dict[str, dict[str, Any]], actor_plan: list[dict[str, str]]) -> dict[str, Any]:
+    plan_by_call = {row["call_id"]: row for row in actor_plan}
+    bloc_actions: dict[str, list[dict[str, Any]]] = {"Blue": [], "Red": [], "Neutral": [], "Non-state": []}
+    summaries = []
+    for call_id, envelope in actor_payloads.items():
+        parsed = envelope.get("parsed", {})
+        plan = plan_by_call.get(call_id, {})
+        role = str(parsed.get("scenario_role") or plan.get("scenario_role") or "Unknown")
+        concrete_actor_id = str(parsed.get("concrete_actor_id") or plan.get("actor_id") or call_id)
+        actions = parsed.get("subagent_actions", [])
+        if isinstance(actions, list):
+            bloc_actions.setdefault(role, []).extend(actions)
+        summaries.append(
+            {
+                "call_id": call_id,
+                "actor_id": concrete_actor_id,
+                "scenario_role": role,
+                "intent": parsed.get("intent", ""),
+                "risk_acceptance": parsed.get("risk_acceptance"),
+                "dissent_from_bloc": parsed.get("dissent_from_bloc", []),
+                "action_count": len(actions) if isinstance(actions, list) else 0,
+                "validation": envelope.get("validation", {}),
+            }
+        )
+    return {
+        "actor_count": len(actor_payloads),
+        "actor_summaries": summaries,
+        "bloc_action_counts": {role: len(actions) for role, actions in bloc_actions.items()},
+        "bloc_actions": bloc_actions,
+    }
+
+
+def detect_alliance_dissent(synthesis: dict[str, Any]) -> list[dict[str, Any]]:
+    rows = []
+    for summary in synthesis.get("actor_summaries", []):
+        dissent = summary.get("dissent_from_bloc") or []
+        risk = summary.get("risk_acceptance")
+        if dissent or (isinstance(risk, (int, float)) and risk >= 0.72):
+            rows.append(
+                {
+                    "actor_id": summary.get("actor_id"),
+                    "scenario_role": summary.get("scenario_role"),
+                    "risk_acceptance": risk,
+                    "dissent": dissent,
+                    "assessment": "Potential intra-bloc friction should be considered before aggregating COA.",
+                }
+            )
+    return rows
+
+
+def detect_proxy_autonomy_risk(synthesis: dict[str, Any]) -> list[dict[str, Any]]:
+    rows = []
+    for summary in synthesis.get("actor_summaries", []):
+        actor_id = str(summary.get("actor_id", ""))
+        if actor_id in {"HOUTHIS", "HEZBOLLAH"}:
+            risk = float(summary.get("risk_acceptance") or 0.5)
+            rows.append(
+                {
+                    "actor_id": actor_id,
+                    "principal_actor": "IR",
+                    "risk_score": round(min(0.95, max(0.35, risk + 0.12)), 2),
+                    "assessment": "Proxy actor may create escalation faster than principal decision cycle.",
+                }
+            )
+    return rows
+
+
+def aggregate_bloc_coa(role: str, synthesis: dict[str, Any], actor_payloads: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    actions = list(synthesis.get("bloc_actions", {}).get(role, []))
+    expected_effect: list[dict[str, Any]] = []
+    confidence_values: list[float] = []
+    resource_cost = 0.0
+    for envelope in actor_payloads.values():
+        parsed = envelope.get("parsed", {})
+        if parsed.get("scenario_role") != role:
+            continue
+        for effect in parsed.get("expected_effect", []) if isinstance(parsed.get("expected_effect"), list) else []:
+            if isinstance(effect, dict):
+                expected_effect.append(effect)
+        try:
+            confidence_values.append(float(parsed.get("confidence", 0.55)))
+            resource_cost += float(parsed.get("resource_cost", 0.0))
+        except (TypeError, ValueError):
+            pass
+    intent = "stabilize_regional_posture" if role == "Blue" else "raise_cost_and_pressure"
+    return {
+        "actor_id": role.lower(),
+        "intent": f"v45_concrete_{intent}",
+        "action_bundle": [{"dimension": row.get("dimension"), "action": row.get("action"), "severity": row.get("severity", 0.5)} for row in actions],
+        "subagent_actions": actions,
+        "resource_cost": round(resource_cost, 2),
+        "expected_effect": expected_effect,
+        "confidence": round(sum(confidence_values) / max(1, len(confidence_values)), 2),
+        "engine": "gemini_actor_v45_concrete",
+    }
+
+
 def execute_gemini_actor_turn(
     mission: dict[str, Any],
     scenario: dict[str, Any],
@@ -272,6 +729,11 @@ def execute_gemini_actor_turn(
     existing_turn_packet: dict[str, Any] | None = None,
     *,
     mock_gemini: bool = False,
+    actor_execution: str = "v45_concrete",
+    actor_scope: str = "core",
+    gemini_timeout: int = 180,
+    gemini_launch_mode: str = "auto",
+    gemini_model: str | None = None,
 ) -> TurnResult:
     working_dir = Path(mission.get("working_dir", "."))
     replay_dir = working_dir / "replay_bundle"
@@ -321,35 +783,115 @@ def execute_gemini_actor_turn(
 
     actor_responses: dict[str, dict[str, Any]] = {}
     context_packs: dict[str, dict[str, Any]] = {}
-    call_root = replay_dir / f"turn_{turn_id:02d}_gemini_calls"
-    for actor_id in ACTOR_ROLES:
-        context_pack = actor_context_pack(
-            knowledge_db_path,
-            actor_id,
-            turn_id,
-            state,
-            decision_questions=[str(row) for row in mission.get("decision_questions", [])],
-        )
-        context_packs[actor_id] = context_pack
-        prompt = render_actor_prompt(actor_id, context_pack, base_turn_packet, scenario)
-        actor_responses[actor_id] = call_gemini_actor(
-            actor_id,
-            prompt,
-            call_root / actor_id.lower(),
-            mock=mock_gemini,
-            context_pack=context_pack,
-            state=state,
-            turn_id=turn_id,
-            seed=seed,
-        )
+    support_responses: dict[str, dict[str, Any]] = {}
+    actor_plan: list[dict[str, str]] = []
+    multi_actor_synthesis: dict[str, Any] = {}
+    alliance_dissent: list[dict[str, Any]] = []
+    proxy_autonomy_risk: list[dict[str, Any]] = []
+    call_root = replay_dir / f"turn_{turn_id:02d}_actor_calls"
+    legacy_call_root = replay_dir / f"turn_{turn_id:02d}_gemini_calls"
+    decision_questions = [str(row) for row in mission.get("decision_questions", [])]
+    if actor_execution == "v45_concrete":
+        actor_plan = build_concrete_actor_plan(knowledge_db_path, actor_scope)
+        for row in actor_plan:
+            call_id = row["call_id"]
+            context_pack = actor_context_pack(
+                knowledge_db_path,
+                row["actor_id"],
+                turn_id,
+                state,
+                decision_questions=decision_questions,
+                scenario_role=row["scenario_role"],
+            )
+            context_packs[call_id] = context_pack
+            prompt = render_actor_prompt(call_id, context_pack, base_turn_packet, scenario)
+            actor_responses[call_id] = call_gemini_actor(
+                call_id,
+                prompt,
+                call_root / call_id.lower(),
+                mock=mock_gemini,
+                context_pack=context_pack,
+                state=state,
+                turn_id=turn_id,
+                seed=seed,
+                timeout_sec=gemini_timeout,
+                launch_mode=gemini_launch_mode,
+                gemini_model=gemini_model,
+            )
+        for support_id in ["Intel", "White"]:
+            context_pack = actor_context_pack(
+                knowledge_db_path,
+                support_id,
+                turn_id,
+                state,
+                decision_questions=decision_questions,
+            )
+            context_packs[support_id] = context_pack
+            prompt = render_actor_prompt(support_id, context_pack, base_turn_packet, scenario)
+            support_responses[support_id] = call_gemini_actor(
+                support_id,
+                prompt,
+                call_root / f"{support_id.lower()}_support",
+                mock=mock_gemini,
+                context_pack=context_pack,
+                state=state,
+                turn_id=turn_id,
+                seed=seed,
+                timeout_sec=gemini_timeout,
+                launch_mode=gemini_launch_mode,
+                gemini_model=gemini_model,
+            )
+        multi_actor_synthesis = synthesize_multi_actor(actor_responses, actor_plan)
+        alliance_dissent = detect_alliance_dissent(multi_actor_synthesis)
+        proxy_autonomy_risk = detect_proxy_autonomy_risk(multi_actor_synthesis)
+    else:
+        for actor_id in ACTOR_ROLES:
+            context_pack = actor_context_pack(
+                knowledge_db_path,
+                actor_id,
+                turn_id,
+                state,
+                decision_questions=decision_questions,
+            )
+            context_packs[actor_id] = context_pack
+            prompt = render_actor_prompt(actor_id, context_pack, base_turn_packet, scenario)
+            actor_responses[actor_id] = call_gemini_actor(
+                actor_id,
+                prompt,
+                legacy_call_root / actor_id.lower(),
+                mock=mock_gemini,
+                context_pack=context_pack,
+                state=state,
+                turn_id=turn_id,
+                seed=seed,
+                timeout_sec=gemini_timeout,
+                launch_mode=gemini_launch_mode,
+                gemini_model=gemini_model,
+            )
+        support_responses = {key: actor_responses[key] for key in ["Intel", "White"]}
 
     write_json(replay_dir / f"turn_{turn_id:02d}_actor_context_pack.json", context_packs)
-    controller = controller_decision(actor_responses, state)
+    if actor_execution == "v45_concrete":
+        write_json(replay_dir / f"turn_{turn_id:02d}_actor_plan.json", actor_plan)
+        write_json(replay_dir / f"turn_{turn_id:02d}_multi_actor_synthesis.json", multi_actor_synthesis)
+        write_json(replay_dir / f"turn_{turn_id:02d}_alliance_dissent.json", alliance_dissent)
+        write_json(replay_dir / f"turn_{turn_id:02d}_proxy_autonomy_risk.json", proxy_autonomy_risk)
+    controller_inputs = {**actor_responses, **support_responses}
+    controller = controller_decision(controller_inputs, state)
+    if actor_execution == "v45_concrete":
+        controller["actor_execution"] = actor_execution
+        controller["actor_scope"] = actor_scope
+        controller["alliance_dissent_count"] = len(alliance_dissent)
+        controller["proxy_autonomy_risk_count"] = len(proxy_autonomy_risk)
     write_json(replay_dir / f"turn_{turn_id:02d}_controller_decision.json", controller)
     write_json(replay_dir / f"turn_{turn_id:02d}_violations.json", controller["violations"])
 
-    blue_coa = _coa_from_actor("Blue", actor_responses["Blue"]["parsed"])
-    red_coa = _coa_from_actor("Red", actor_responses["Red"]["parsed"])
+    if actor_execution == "v45_concrete":
+        blue_coa = aggregate_bloc_coa("Blue", multi_actor_synthesis, actor_responses)
+        red_coa = aggregate_bloc_coa("Red", multi_actor_synthesis, actor_responses)
+    else:
+        blue_coa = _coa_from_actor("Blue", actor_responses["Blue"]["parsed"])
+        red_coa = _coa_from_actor("Red", actor_responses["Red"]["parsed"])
     if not controller["accepted"]:
         blue_coa["expected_effect"] = []
         red_coa["expected_effect"] = []
@@ -382,7 +924,7 @@ def execute_gemini_actor_turn(
     if not controller["accepted"]:
         next_state = clamp_state(state)
         adjudication["override_note"] = "State frozen by V3 controller because actor contract violations were present."
-    white_payload = actor_responses["White"]["parsed"]
+    white_payload = support_responses["White"]["parsed"]
     if white_payload.get("rule_fires"):
         adjudication.setdefault("rule_fires", []).extend(white_payload.get("rule_fires", []))
     if white_payload.get("dissent"):
@@ -415,11 +957,17 @@ def execute_gemini_actor_turn(
     expert_review = ai_expert_review_cell(mission, base_turn_packet, fused_evidence, adjudication, event_ledger, seed)
     expert_review["gemini_white_review"] = white_payload
     expert_review["controller_decision"] = controller
+    expert_review["multi_actor_synthesis"] = multi_actor_synthesis
+    expert_review["alliance_dissent"] = alliance_dissent
+    expert_review["proxy_autonomy_risk"] = proxy_autonomy_risk
     adjudication = apply_ai_review_to_adjudication(adjudication, expert_review)
     indicators = indicator_from_state(next_state)
 
     record_turn_memory(knowledge_db_path, run_id, turn_id, "Blue", blue_coa, blue_coa.get("expected_effect", {}), controller["rationale"], controller["violations"])
     record_turn_memory(knowledge_db_path, run_id, turn_id, "Red", red_coa, red_coa.get("expected_effect", {}), controller["rationale"], controller["violations"])
+    for call_id, envelope in actor_responses.items():
+        parsed = envelope.get("parsed", {})
+        record_turn_memory(knowledge_db_path, run_id, turn_id, str(parsed.get("concrete_actor_id") or call_id), parsed, parsed.get("expected_effect", {}), controller["rationale"], controller["violations"])
     record_turn_memory(knowledge_db_path, run_id, turn_id, "White", white_payload, {}, controller["rationale"], controller["violations"])
     write_json(working_dir / "knowledge_db_manifest.json", manifest(knowledge_db_path))
 
@@ -427,12 +975,25 @@ def execute_gemini_actor_turn(
         "turn_id": turn_id,
         "engine": "gemini_actor",
         "mock_gemini": mock_gemini,
+        "actor_execution": actor_execution,
+        "actor_scope": actor_scope,
+        "gemini_launch_mode": gemini_launch_mode,
+        "gemini_model": gemini_model,
+        "gemini_timeout": gemini_timeout,
         "gemini_call_dir": str(call_root.resolve()),
         "actor_context_pack": str((replay_dir / f"turn_{turn_id:02d}_actor_context_pack.json").resolve()),
         "controller_decision": controller,
         "blue_subagents": blue_coa.get("subagent_actions", []),
         "red_subagents": red_coa.get("subagent_actions", []),
-        "intel_fusion": actor_responses["Intel"]["parsed"],
+        "actor_plan": actor_plan,
+        "multi_actor_synthesis": multi_actor_synthesis,
+        "support_call_summaries": {
+            key: {"validation": value.get("validation", {}), "actor_id": key}
+            for key, value in support_responses.items()
+        },
+        "alliance_dissent": alliance_dissent,
+        "proxy_autonomy_risk": proxy_autonomy_risk,
+        "intel_fusion": support_responses["Intel"]["parsed"],
         "white_review": white_payload,
         "white_rule_fires": adjudication.get("rule_fires", []),
         "white_decision_rationale": adjudication.get("decision_rationale", []),

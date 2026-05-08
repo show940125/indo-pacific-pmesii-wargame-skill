@@ -434,6 +434,7 @@ def _seed_world_tables(
             conn.execute("INSERT OR REPLACE INTO actor_aliases(alias,actor_id) VALUES(?,?)", (str(alias).lower(), actor_id))
 
     role_map = select_scenario_actor_ids(mission, scenario)
+    conn.execute("DELETE FROM actor_bloc_roles WHERE scenario_id='current'")
     for role, actor_ids in role_map.items():
         for actor_id in actor_ids:
             conn.execute(
@@ -970,37 +971,52 @@ def actor_context_pack(
     state: dict[str, float],
     decision_questions: list[str] | None = None,
     max_rows: int = 24,
+    scenario_role: str | None = None,
 ) -> dict[str, Any]:
-    actor_key = actor_id if actor_id in {"Blue", "Red", "White", "Intel"} else actor_id.upper()
+    support_roles = {"Blue", "Red", "White", "Intel"}
+    actor_key = actor_id if actor_id in support_roles else actor_id.upper()
+    role_key = scenario_role or (actor_key if actor_key in support_roles else "Blue")
     with connect(db_path) as conn:
-        actor = conn.execute("SELECT * FROM actors WHERE actor_id=?", (actor_key,)).fetchone()
+        actor = conn.execute("SELECT * FROM actors WHERE actor_id=?", (actor_key if actor_key in support_roles else role_key,)).fetchone()
         concrete_actor_id = None
-        if actor is None and actor_key not in {"Blue", "Red", "White", "Intel"}:
+        if actor is None and actor_key not in support_roles:
             concrete_actor_id = actor_key
             actor = conn.execute("SELECT * FROM actors WHERE actor_id=?", ("Blue",)).fetchone()
         if actor is None:
             raise ValueError(f"Unknown actor_id: {actor_id}")
-        if actor_key in {"Blue", "Red"}:
+        if actor_key in {"Blue", "Red"} and scenario_role is None:
             concrete_actor_id = _role_primary_actor(conn, actor_key)
         elif actor_key not in {"White", "Intel"}:
             concrete_actor_id = actor_key
         dimensions = sorted(state, key=lambda key: float(state.get(key, 0.0)), reverse=True)
-        doctrine = _fetch_all(conn, "SELECT * FROM actor_doctrine WHERE actor_id=? ORDER BY dimension", (actor_key if actor_key in {"Blue", "Red"} else "Blue",))
+        doctrine_actor = role_key if role_key in {"Blue", "Red"} else "Blue"
+        doctrine = _fetch_all(conn, "SELECT * FROM actor_doctrine WHERE actor_id=? ORDER BY dimension", (doctrine_actor,))
         indicators = _fetch_all(conn, f"SELECT * FROM pmesii_indicators WHERE dimension IN ({','.join('?' for _ in dimensions)})", tuple(dimensions))
-        capabilities = _fetch_all(conn, "SELECT * FROM capabilities WHERE actor_id=? ORDER BY confidence DESC LIMIT ?", (actor_key, max_rows))
-        constraints = _fetch_all(conn, "SELECT * FROM constraints WHERE actor_id IS NULL OR actor_id=? ORDER BY severity DESC, constraint_id LIMIT ?", (actor_key, max_rows))
+        capabilities = _fetch_all(conn, "SELECT * FROM capabilities WHERE actor_id=? ORDER BY confidence DESC LIMIT ?", (doctrine_actor, max_rows))
+        constraints = _fetch_all(conn, "SELECT * FROM constraints WHERE actor_id IS NULL OR actor_id=? ORDER BY severity DESC, constraint_id LIMIT ?", (doctrine_actor, max_rows))
         sources = _fetch_all(conn, "SELECT * FROM sources ORDER BY reliability_prior DESC LIMIT ?", (max_rows,))
         source_documents = _fetch_all(conn, "SELECT * FROM source_documents ORDER BY reliability_prior DESC LIMIT ?", (max_rows,))
         facts = _fetch_all(conn, "SELECT * FROM scenario_facts ORDER BY confidence DESC LIMIT ?", (max_rows,))
-        memory = _fetch_all(conn, "SELECT * FROM turn_memory WHERE actor_id=? ORDER BY turn_id DESC LIMIT ?", (actor_key, 8))
+        memory_actor = concrete_actor_id or actor_key
+        memory = _fetch_all(conn, "SELECT * FROM turn_memory WHERE actor_id=? ORDER BY turn_id DESC LIMIT ?", (memory_actor, 8))
         role_map = _fetch_all(conn, "SELECT * FROM actor_bloc_roles WHERE scenario_id='current' ORDER BY role, actor_id")
+        role_peers = [row["actor_id"] for row in role_map if row.get("role") == role_key and row.get("actor_id") != concrete_actor_id]
+        alliance_peers = [row["actor_id"] for row in role_map if row.get("role") == role_key]
+        opposing_role = "Red" if role_key == "Blue" else "Blue" if role_key == "Red" else None
+        opposing_actors = [row["actor_id"] for row in role_map if opposing_role and row.get("role") == opposing_role]
+        neutral_actors = [row["actor_id"] for row in role_map if row.get("role") == "Neutral"]
         world_context = _world_actor_context(conn, concrete_actor_id, max_rows) if concrete_actor_id else None
     return {
         "schema_version": SCHEMA_VERSION,
         "actor": dict(actor),
+        "scenario_role": role_key,
         "concrete_actor_id": concrete_actor_id,
         "concrete_actor_context": world_context,
         "scenario_role_map": role_map,
+        "role_peers": role_peers,
+        "alliance_peers": alliance_peers,
+        "opposing_actors": opposing_actors,
+        "neutral_actors": neutral_actors,
         "turn_id": turn_id,
         "state": state,
         "decision_questions": decision_questions or [],

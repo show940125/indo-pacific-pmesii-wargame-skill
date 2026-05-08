@@ -118,6 +118,11 @@ def main() -> None:
     parser.add_argument("--length-counting", default=None, help="Override length counting mode: cjk_chars|all_chars|words")
     parser.add_argument("--engine", choices=["local_synthetic", "gemini_actor"], default="local_synthetic", help="Turn engine")
     parser.add_argument("--mock-gemini", action="store_true", help="Use deterministic mock Gemini actor responses for V3 tests")
+    parser.add_argument("--actor-execution", choices=["v4_abstract", "v45_concrete"], default="v45_concrete", help="Gemini actor execution topology")
+    parser.add_argument("--actor-scope", choices=["core", "expanded", "all"], default="core", help="Concrete actor scope for V4.5")
+    parser.add_argument("--gemini-timeout", type=int, default=180, help="Seconds to wait for each Gemini CLI actor call before fallback.")
+    parser.add_argument("--gemini-launch-mode", choices=["auto", "popen_headless", "pty_interactive", "mcp"], default="auto", help="Gemini CLI launch strategy for live actor calls.")
+    parser.add_argument("--gemini-model", default=None, help="Optional Gemini model override, for example gemini-2.5-flash for smoke tests.")
     parser.add_argument("--knowledge-db", default=None, help="V4 knowledge DB path. Defaults to data/wargame_knowledge.sqlite.")
     args = parser.parse_args()
 
@@ -165,6 +170,8 @@ def main() -> None:
     replay_dir.mkdir(parents=True, exist_ok=True)
     mission["working_dir"] = str(out_dir)
     mission["engine"] = args.engine
+    mission["actor_execution"] = args.actor_execution
+    mission["actor_scope"] = args.actor_scope
     mission["baseline_db_path"] = str(out_dir / "actor_baseline_db.sqlite")
     mission["knowledge_db_path"] = str(resolve_knowledge_db_path(args.knowledge_db or mission.get("knowledge_db_path")))
     baseline_meta = ensure_actor_baseline_db(mission["baseline_db_path"], mission, collection_plan)
@@ -199,6 +206,11 @@ def main() -> None:
                 seed=seed,
                 collection_plan=collection_plan,
                 mock_gemini=args.mock_gemini,
+                actor_execution=args.actor_execution,
+                actor_scope=args.actor_scope,
+                gemini_timeout=args.gemini_timeout,
+                gemini_launch_mode=args.gemini_launch_mode,
+                gemini_model=args.gemini_model,
             )
         else:
             turn_result = execute_turn(
@@ -377,6 +389,25 @@ def main() -> None:
         "review_mode": mission.get("review_mode", "ai_panel"),
         "engine": args.engine,
         "mock_gemini": bool(args.mock_gemini),
+        "actor_execution": args.actor_execution if args.engine == "gemini_actor" else None,
+        "actor_scope": args.actor_scope if args.engine == "gemini_actor" else None,
+        "actor_call_count": sum(int(row.agent_log.get("multi_actor_synthesis", {}).get("actor_count", 0)) for row in turn_results),
+        "support_call_count": (2 * turns) if args.engine == "gemini_actor" and args.actor_execution == "v45_concrete" else 0,
+        "gemini_timeout": args.gemini_timeout if args.engine == "gemini_actor" else None,
+        "gemini_launch_mode": args.gemini_launch_mode if args.engine == "gemini_actor" else None,
+        "gemini_model": args.gemini_model if args.engine == "gemini_actor" else None,
+        "fallback_call_count": sum(
+            1
+            for row in turn_results
+            for summary_row in row.agent_log.get("multi_actor_synthesis", {}).get("actor_summaries", [])
+            if summary_row.get("validation", {}).get("fallback") or summary_row.get("validation", {}).get("mock")
+        )
+        + sum(
+            1
+            for row in turn_results
+            for summary_row in row.agent_log.get("support_call_summaries", {}).values()
+            if summary_row.get("validation", {}).get("fallback") or summary_row.get("validation", {}).get("mock")
+        ),
     }
     write_json(out_dir / "run_summary.json", summary)
     print(json.dumps(summary, ensure_ascii=False, indent=2))

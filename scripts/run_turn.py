@@ -28,6 +28,11 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--engine", choices=["local_synthetic", "gemini_actor"], default="local_synthetic")
     parser.add_argument("--mock-gemini", action="store_true", help="Use deterministic mock Gemini actor responses.")
+    parser.add_argument("--actor-execution", choices=["v4_abstract", "v45_concrete"], default="v45_concrete")
+    parser.add_argument("--actor-scope", choices=["core", "expanded", "all"], default="core")
+    parser.add_argument("--gemini-timeout", type=int, default=180)
+    parser.add_argument("--gemini-launch-mode", choices=["auto", "popen_headless", "pty_interactive", "mcp"], default="auto")
+    parser.add_argument("--gemini-model", default=None)
     parser.add_argument("--knowledge-db", default=None, help="V4 knowledge DB path. Defaults to data/wargame_knowledge.sqlite.")
     parser.add_argument("--out", required=True)
     args = parser.parse_args()
@@ -65,6 +70,11 @@ def main() -> None:
             collection_plan,
             existing_turn_packet=turn_packet if args.turn_packet else None,
             mock_gemini=args.mock_gemini,
+            actor_execution=args.actor_execution,
+            actor_scope=args.actor_scope,
+            gemini_timeout=args.gemini_timeout,
+            gemini_launch_mode=args.gemini_launch_mode,
+            gemini_model=args.gemini_model,
         )
     else:
         result = execute_turn(

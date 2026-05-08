@@ -5,7 +5,7 @@ description: Use when planning or running strategic-level Indo-Pacific PMESII wa
 
 # Indo-Pacific PMESII Wargame
 
-Use this skill to run a strategic PMESII campaign simulation where Gemini performs actor roleplay and Codex/Python acts as observer, controller, judge, rule keeper, and report integrator. V4 adds a SQLite world knowledge layer with concrete country/organization actors, PMESII baselines, model-level military platforms, capability rules, weapon interactions, and source provenance.
+Use this skill to run a strategic PMESII campaign simulation where Gemini performs concrete actor roleplay and Codex/Python acts as observer, controller, judge, rule keeper, and report integrator. V4.5 adds per-actor Gemini execution, SQLite world knowledge context, multi-actor synthesis, alliance dissent checks, proxy autonomy risk checks, OAuth diagnostics, and transparent live-call fallback.
 
 Default output language is Traditional Chinese (`zh-TW`) for reports and key judgments.
 
@@ -16,13 +16,13 @@ Default output language is Traditional Chinese (`zh-TW`) for reports and key jud
 - User needs SQLite-backed actor doctrine, PMESII context, and scenario facts.
 - User needs repeatable runs, replay bundles, evidence chains, ACH, and sensitivity outputs.
 
-## V3 Topology
+## V4.5 Topology
 
 - `Codex Controller`: prepares packets, queries SQLite, validates actor JSON, freezes unsafe state transitions, renders reports.
+- `Concrete Gemini Actors`: US, IR, IL, SA, AE, Houthis, Hezbollah, or scenario-selected actors each produce independent JSON.
 - `Gemini Intel`: fuses evidence and source gaps.
-- `Gemini Blue`: produces PMESII-grounded stabilization COA.
-- `Gemini Red`: produces PMESII-grounded coercive COA.
 - `Gemini White`: reviews rules, legal/ROE risk, probability, counterdeception, dissent, and uncertainty.
+- `Multi-Actor Synthesis`: aggregates concrete actors into Blue/Red COAs after checking dissent and proxy risk.
 - `Python Adjudication`: converts accepted COAs into state deltas, event ledgers, ACH, KJs, reports, and replay artifacts.
 
 ## Primary Commands
@@ -33,18 +33,30 @@ Run a V3 campaign with deterministic mock Gemini actors for validation:
 python scripts/run_campaign.py --mission in/mission.json --scenario in/scenario_pack.json --actor-config in/actor_config.json --collection-plan in/collection_plan.json --out out/v3_mock_run_001 --engine gemini_actor --mock-gemini --turns 1
 ```
 
-Run the May 8, 2026 US-Iran/Hormuz V4 example:
+Run Gemini CLI OAuth diagnostics before a live run:
 
 ```powershell
-python scripts/run_campaign.py --mission in/mission_us_iran_20260508.json --scenario in/scenario_pack_us_iran_20260508.json --actor-config in/actor_config_us_iran_20260508.json --collection-plan in/collection_plan_us_iran_20260508.json --out out/us_iran_20260508_v4_example_5turn --engine gemini_actor --mock-gemini --turns 5 --report-profile dual_layer --ach-profile full --narrative-mode event_cards --length-policy warn
+python scripts/diagnose_gemini_cli.py --timeout 60 --out out/gemini_cli_diagnostics.json
+```
+
+Open a project-scoped OAuth repair window when `oauth-personal` falls into an auth/consent loop:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/open_gemini_oauth_repair.ps1
+```
+
+Run the May 8, 2026 US-Iran/Hormuz V4.5 example:
+
+```powershell
+python scripts/run_campaign.py --mission in/mission_us_iran_20260508.json --scenario in/scenario_pack_us_iran_20260508.json --actor-config in/actor_config_us_iran_20260508.json --collection-plan in/collection_plan_us_iran_20260508.json --out out/us_iran_20260508_v45_example_5turn --engine gemini_actor --actor-execution v45_concrete --actor-scope core --gemini-launch-mode auto --gemini-timeout 180 --turns 5 --report-profile dual_layer --ach-profile full --narrative-mode event_cards --length-policy warn
 ```
 
 By default, V4 Gemini actor runs use `data/wargame_knowledge.sqlite`. Use `--knowledge-db <path>` only when a scenario needs an isolated local knowledge DB.
 
-Run a V3 campaign with live Gemini CLI fallback:
+Run a V4.5 campaign with live Gemini CLI fallback:
 
 ```powershell
-python scripts/run_campaign.py --mission in/mission.json --scenario in/scenario_pack.json --actor-config in/actor_config.json --collection-plan in/collection_plan.json --out out/v3_gemini_run_001 --engine gemini_actor --turns 1
+python scripts/run_campaign.py --mission in/mission.json --scenario in/scenario_pack.json --actor-config in/actor_config.json --collection-plan in/collection_plan.json --out out/v45_gemini_run_001 --engine gemini_actor --gemini-launch-mode auto --gemini-timeout 180 --turns 1
 ```
 
 Run the legacy deterministic engine:

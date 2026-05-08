@@ -165,7 +165,11 @@ class PipelineTests(unittest.TestCase):
     def test_v3_gemini_actor_mock_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
-            mission_payload = json.loads(self.mission.read_text(encoding="utf-8"))
+            us_iran_mission = self.skill_dir / "in" / "mission_us_iran_20260508.json"
+            us_iran_scenario = self.skill_dir / "in" / "scenario_pack_us_iran_20260508.json"
+            us_iran_actor = self.skill_dir / "in" / "actor_config_us_iran_20260508.json"
+            us_iran_collection = self.skill_dir / "in" / "collection_plan_us_iran_20260508.json"
+            mission_payload = json.loads(us_iran_mission.read_text(encoding="utf-8"))
             mission_payload["run_mode"] = "custom"
             mission_payload["turns"] = 1
             mission_payload["strict_kj_threshold"] = 2
@@ -178,11 +182,11 @@ class PipelineTests(unittest.TestCase):
                 "--mission",
                 str(mission_path),
                 "--scenario",
-                str(self.scenario),
+                str(us_iran_scenario),
                 "--actor-config",
-                str(self.actor),
+                str(us_iran_actor),
                 "--collection-plan",
-                str(self.collection),
+                str(us_iran_collection),
                 "--out",
                 str(out_dir),
                 "--engine",
@@ -197,7 +201,12 @@ class PipelineTests(unittest.TestCase):
             self.assertTrue((out_dir / "replay_bundle" / "turn_01_actor_context_pack.json").exists())
             self.assertTrue((out_dir / "replay_bundle" / "turn_01_controller_decision.json").exists())
             self.assertTrue((out_dir / "replay_bundle" / "turn_01_violations.json").exists())
-            self.assertTrue((out_dir / "replay_bundle" / "turn_01_gemini_calls" / "blue" / "parsed.json").exists())
+            self.assertTrue((out_dir / "replay_bundle" / "turn_01_actor_calls" / "us_blue" / "parsed.json").exists())
+            self.assertTrue((out_dir / "replay_bundle" / "turn_01_actor_calls" / "ir_red" / "parsed.json").exists())
+            self.assertTrue((out_dir / "replay_bundle" / "turn_01_actor_calls" / "intel_support" / "parsed.json").exists())
+            self.assertTrue((out_dir / "replay_bundle" / "turn_01_multi_actor_synthesis.json").exists())
+            synthesis = json.loads((out_dir / "replay_bundle" / "turn_01_multi_actor_synthesis.json").read_text(encoding="utf-8"))
+            self.assertEqual(synthesis["actor_count"], 7)
             manifest = json.loads((out_dir / "knowledge_db_manifest.json").read_text(encoding="utf-8"))
             self.assertEqual(manifest["schema_version"], 4)
             self.assertGreaterEqual(manifest["coverage"]["world_actor_count"], 20)
@@ -207,6 +216,8 @@ class PipelineTests(unittest.TestCase):
             self.assertEqual(Path(artifact["wargame_knowledge_db"]), knowledge_db.resolve())
             summary = json.loads((out_dir / "run_summary.json").read_text(encoding="utf-8"))
             self.assertEqual(summary["engine"], "gemini_actor")
+            self.assertEqual(summary["actor_execution"], "v45_concrete")
+            self.assertEqual(summary["actor_call_count"], 7)
 
 
 if __name__ == "__main__":
