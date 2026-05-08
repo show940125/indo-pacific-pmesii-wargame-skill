@@ -134,6 +134,24 @@ python scripts/run_campaign.py `
   --turns 1
 ```
 
+執行內建的 2026-05-08 美伊／荷姆茲五回合 V4 example：
+
+```powershell
+python scripts/run_campaign.py `
+  --mission in/mission_us_iran_20260508.json `
+  --scenario in/scenario_pack_us_iran_20260508.json `
+  --actor-config in/actor_config_us_iran_20260508.json `
+  --collection-plan in/collection_plan_us_iran_20260508.json `
+  --out out/us_iran_20260508_v4_example_5turn `
+  --engine gemini_actor `
+  --mock-gemini `
+  --turns 5 `
+  --report-profile dual_layer `
+  --ach-profile full `
+  --narrative-mode event_cards `
+  --length-policy warn
+```
+
 ## Knowledge DB Query CLI
 
 `scripts/query_knowledge_db.py` 是穩定的 LLM 查詢入口。Gemini、GPT 與 controller tool 應該透過這支 CLI 取得 context，不要讓模型自己猜 SQL。

@@ -134,6 +134,24 @@ python scripts/run_campaign.py `
   --turns 1
 ```
 
+Run the bundled May 8, 2026 US-Iran/Hormuz example for five V4 turns:
+
+```powershell
+python scripts/run_campaign.py `
+  --mission in/mission_us_iran_20260508.json `
+  --scenario in/scenario_pack_us_iran_20260508.json `
+  --actor-config in/actor_config_us_iran_20260508.json `
+  --collection-plan in/collection_plan_us_iran_20260508.json `
+  --out out/us_iran_20260508_v4_example_5turn `
+  --engine gemini_actor `
+  --mock-gemini `
+  --turns 5 `
+  --report-profile dual_layer `
+  --ach-profile full `
+  --narrative-mode event_cards `
+  --length-policy warn
+```
+
 ## Knowledge DB Query CLI
 
 Use `scripts/query_knowledge_db.py` as the stable LLM-facing query interface. Gemini, GPT, and controller tools should call this CLI instead of writing ad hoc SQL.

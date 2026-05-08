@@ -1,0 +1,122 @@
+{
+  "baseline": "截至 2026-05-08，美伊衝突處於停火仍被宣稱維持、但荷姆茲海峽航運與封鎖問題持續測試停火的階段。公開報導顯示，美國與以色列於 2026-02-28 對伊朗發動大規模打擊後，伊朗以攻擊美軍區域設施、以色列、海灣能源與民用基礎設施回應；4 月初曾出現停火。5 月上旬，美方暫停 Project Freedom 航運護送行動以保留談判空間，但封鎖與航運通行限制仍在。荷姆茲周邊交火、無人機/飛彈/小艇事件、對 UAE 目標的攻擊、能源價格與區域盟友協調壓力，構成本次五回合推演的起點。",
+  "excursions": [
+    "Project Freedom 暫停後談判失速，荷姆茲航運再度受阻",
+    "伊朗或其關聯勢力對海灣能源/港口/船舶發動有限攻擊",
+    "美方或以色列因船舶、基地或盟友損失而進行有限反擊",
+    "代理人戰線在紅海、黎巴嫩、伊拉克或敘利亞同步升壓",
+    "談判出現 MOU 或臨時機制，但封鎖、核限制與制裁解除順序談不攏"
+  ],
+  "assumption_tree": [
+    {
+      "name": "停火政治承諾仍能約束美伊直接攻擊",
+      "stress_factor": 1.2
+    },
+    {
+      "name": "荷姆茲航運是談判籌碼而非全面封鎖目標",
+      "stress_factor": 1.35
+    },
+    {
+      "name": "海灣國家對美軍基地/領空/後勤支援有保留",
+      "stress_factor": 1.25
+    },
+    {
+      "name": "伊朗代理人網絡具備局部自主升級風險",
+      "stress_factor": 1.4
+    },
+    {
+      "name": "能源價格壓力會快速回饋到美國與盟友政治決策",
+      "stress_factor": 1.3
+    }
+  ],
+  "termination_conditions": [
+    "turn_limit_reached",
+    "美伊直接交火造成重大人員傷亡",
+    "荷姆茲海峽實質重新開放且雙方宣布談判框架",
+    "代理人攻擊導致以色列或海灣盟友擴大軍事回應"
+  ],
+  "shock_library": [
+    {
+      "title": "荷姆茲交火測試停火：小艇、無人機、巡弋飛彈或護航船隊事件",
+      "start_turn": 1,
+      "end_turn": 5,
+      "source": "AP/Axios/Defense News/CFR open-source synthesis, captured 2026-05-08",
+      "source_tier": "public",
+      "independence_group": "open_media_maritime"
+    },
+    {
+      "title": "Project Freedom 暫停後，談判窗口與封鎖維持同時存在",
+      "start_turn": 1,
+      "end_turn": 3,
+      "source": "Axios and CFR public reporting, captured 2026-05-08",
+      "source_tier": "public",
+      "independence_group": "open_media_diplomacy"
+    },
+    {
+      "title": "伊朗要求永久停戰、解除封鎖或制裁放鬆；美方要求核限制與航運恢復",
+      "start_turn": 1,
+      "end_turn": 5,
+      "source": "CFR conflict tracker and public diplomatic reporting",
+      "source_tier": "public",
+      "independence_group": "diplomatic_public"
+    },
+    {
+      "title": "UAE、沙烏地、GCC 與其他區域伙伴因基地、領空、能源設施安全承擔政治成本",
+      "start_turn": 2,
+      "end_turn": 5,
+      "source": "CFR and regional public reporting",
+      "source_tier": "public",
+      "independence_group": "regional_public"
+    },
+    {
+      "title": "能源價格與保險費率上行，使美方與盟友面臨內部政治壓力",
+      "start_turn": 2,
+      "end_turn": 5,
+      "source": "CFR/Axios economic and energy reporting",
+      "source_tier": "public",
+      "independence_group": "energy_public"
+    },
+    {
+      "title": "以色列國內對結束戰爭仍有疑慮，可能壓縮美伊外交空間",
+      "start_turn": 3,
+      "end_turn": 5,
+      "source": "Al Jazeera public reporting, captured 2026-05-08",
+      "source_tier": "public",
+      "independence_group": "regional_media"
+    }
+  ],
+  "initial_state": {
+    "P": 72.0,
+    "M": 84.0,
+    "E": 76.0,
+    "S": 58.0,
+    "I": 78.0,
+    "Infra": 74.0
+  },
+  "latest_source_notes": [
+    {
+      "source": "CFR Global Conflict Tracker",
+      "url": "https://www.cfr.org/global-conflict-tracker/conflict/confrontation-between-united-states-and-iran",
+      "captured_at": "2026-05-08T00:00:00+08:00",
+      "claim": "CFR describes the February 28 US-Israel attack, April ceasefire, Hormuz disruption, and May 5-6 diplomatic/Project Freedom updates."
+    },
+    {
+      "source": "Axios",
+      "url": "https://www.axios.com/2026/05/05/iran-war-trump-hormuz-ships-peace-talks",
+      "captured_at": "2026-05-08T00:00:00+08:00",
+      "claim": "Axios reports Trump paused the Strait of Hormuz operation while claiming progress toward an Iran agreement, with blockade remaining in force."
+    },
+    {
+      "source": "Defense News",
+      "url": "https://www.defensenews.com/news/pentagon-congress/2026/05/05/us-iran-launch-new-attacks-as-they-wrestle-for-control-of-gulf-waters/",
+      "captured_at": "2026-05-08T00:00:00+08:00",
+      "claim": "Defense News reports new US-Iran attacks around Gulf waters and ship movement through the Strait of Hormuz."
+    },
+    {
+      "source": "Al Jazeera",
+      "url": "https://www.aljazeera.com/news/2026/5/6/iran-war-day-68-trump-talks-about-progress-in-talks-rubio-says-war-over",
+      "captured_at": "2026-05-08T00:00:00+08:00",
+      "claim": "Al Jazeera reports US pause, diplomacy, Iranian foreign minister travel to Beijing, and Israeli public skepticism about ending the war."
+    }
+  ]
+}

@@ -1,0 +1,34 @@
+{
+  "topic": "美伊衝突：荷姆茲海峽停火壓力測試與談判窗口（V4 Example, 2026-05-08）",
+  "decision_questions": [
+    "未來五個回合內，美伊衝突最可能走向停火鞏固、灰色地帶拉鋸，或局部復燃？",
+    "美方在維持威懾、恢復航運、避免全面戰爭之間，哪些槓桿最有效？",
+    "伊朗在制裁、封鎖、核議題與區域代理人壓力下，哪些行動最可能被視為越線？",
+    "哪些 PMESII 指標最早顯示談判窗口正在關閉？"
+  ],
+  "geo_scope": "中東、波斯灣、荷姆茲海峽、以色列與海灣盟友周邊",
+  "time_window": {
+    "start": "2026-05-08T00:00:00+08:00",
+    "end": "2026-06-07T00:00:00+08:00"
+  },
+  "classification": "UNCLASSIFIED",
+  "run_mode": "custom",
+  "turns": 5,
+  "output_lang": "zh-TW",
+  "evidence_mode": "hybrid",
+  "review_mode": "ai_panel",
+  "capture_policy": "warn",
+  "actor_ids": {
+    "Blue": ["US", "IL", "SA", "AE", "GCC"],
+    "Red": ["IR", "HOUTHIS", "HEZBOLLAH"],
+    "Neutral": ["QA", "TR", "EU", "CN"],
+    "Non-state": ["HOUTHIS", "HEZBOLLAH"]
+  },
+  "success_criteria": [
+    "每回合產生 Gemini actor context pack 與 controller decision",
+    "維持可回放 replay_bundle",
+    "輸出繁中 executive 與 analyst 報告",
+    "明確標記荷姆茲航運、停火、談判與區域代理人風險"
+  ],
+  "seed": 20260508
+}

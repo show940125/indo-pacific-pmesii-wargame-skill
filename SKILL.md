@@ -33,6 +33,12 @@ Run a V3 campaign with deterministic mock Gemini actors for validation:
 python scripts/run_campaign.py --mission in/mission.json --scenario in/scenario_pack.json --actor-config in/actor_config.json --collection-plan in/collection_plan.json --out out/v3_mock_run_001 --engine gemini_actor --mock-gemini --turns 1
 ```
 
+Run the May 8, 2026 US-Iran/Hormuz V4 example:
+
+```powershell
+python scripts/run_campaign.py --mission in/mission_us_iran_20260508.json --scenario in/scenario_pack_us_iran_20260508.json --actor-config in/actor_config_us_iran_20260508.json --collection-plan in/collection_plan_us_iran_20260508.json --out out/us_iran_20260508_v4_example_5turn --engine gemini_actor --mock-gemini --turns 5 --report-profile dual_layer --ach-profile full --narrative-mode event_cards --length-policy warn
+```
+
 By default, V4 Gemini actor runs use `data/wargame_knowledge.sqlite`. Use `--knowledge-db <path>` only when a scenario needs an isolated local knowledge DB.
 
 Run a V3 campaign with live Gemini CLI fallback:

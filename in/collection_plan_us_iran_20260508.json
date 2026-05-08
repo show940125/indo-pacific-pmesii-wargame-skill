@@ -1,0 +1,52 @@
+{
+  "sources": [
+    {
+      "name": "CFR Global Conflict Tracker - Iran's War With Israel and the United States",
+      "tier": "public",
+      "independence_group": "think_tank_tracker",
+      "url": "https://www.cfr.org/global-conflict-tracker/conflict/confrontation-between-united-states-and-iran",
+      "publisher": "Council on Foreign Relations",
+      "capture_mode": "manual_open_source_seed",
+      "priority": 1,
+      "focus": "conflict timeline, ceasefire, Hormuz, diplomatic status"
+    },
+    {
+      "name": "Axios - Trump suspends Hormuz operation",
+      "tier": "public",
+      "independence_group": "open_media_us",
+      "url": "https://www.axios.com/2026/05/05/iran-war-trump-hormuz-ships-peace-talks",
+      "publisher": "Axios",
+      "capture_mode": "manual_open_source_seed",
+      "priority": 1,
+      "focus": "Project Freedom pause, blockade, negotiation signal"
+    },
+    {
+      "name": "Defense News - US Iran Gulf waters attacks",
+      "tier": "public",
+      "independence_group": "defense_media",
+      "url": "https://www.defensenews.com/news/pentagon-congress/2026/05/05/us-iran-launch-new-attacks-as-they-wrestle-for-control-of-gulf-waters/",
+      "publisher": "Defense News",
+      "capture_mode": "manual_open_source_seed",
+      "priority": 2,
+      "focus": "military and maritime incidents in the Gulf"
+    },
+    {
+      "name": "Al Jazeera - Iran war day 68",
+      "tier": "public",
+      "independence_group": "regional_media",
+      "url": "https://www.aljazeera.com/news/2026/5/6/iran-war-day-68-trump-talks-about-progress-in-talks-rubio-says-war-over",
+      "publisher": "Al Jazeera",
+      "capture_mode": "manual_open_source_seed",
+      "priority": 2,
+      "focus": "regional diplomacy, China talks, Israeli domestic skepticism"
+    },
+    {
+      "name": "official defense and maritime advisories",
+      "tier": "official",
+      "independence_group": "defense_maritime_official",
+      "capture_mode": "synthetic_fallback",
+      "priority": 3,
+      "focus": "future validation for military and shipping incidents"
+    }
+  ]
+}
