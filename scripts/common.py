@@ -59,6 +59,191 @@ def resolve_knowledge_db_path(explicit_path: str | None = None) -> Path:
         return Path(explicit_path)
     return default_knowledge_db_path()
 
+
+def calculate_combat_outcome(
+    database_path: str | Path,
+    attacker_id: str,
+    defender_id: str,
+    seed: int,
+) -> dict[str, Any]:
+    db_path = Path(database_path)
+    if not db_path.exists():
+        return {
+            "intercepted": False,
+            "p_success": 0.0,
+            "roll": 1.0,
+            "attacker_concrete_id": None,
+            "defender_concrete_id": None,
+            "attacker_family": None,
+            "defender_family": None,
+            "ammo_consume_attacker": 1,
+            "ammo_consume_defender": 1,
+            "stock_attacker": 0,
+            "stock_defender": 0,
+            "p_success_min": 0.65,
+            "p_success_max": 0.85,
+        }
+
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # Resolve actor_id to concrete actor list
+        def resolve_actors(role_or_actor: str) -> list[str]:
+            cursor.execute(
+                "SELECT actor_id FROM actor_bloc_roles WHERE LOWER(role) = ? AND scenario_id = 'current'",
+                (role_or_actor.lower(),)
+            )
+            rows = cursor.fetchall()
+            if rows:
+                return [row["actor_id"] for row in rows]
+            cursor.execute(
+                "SELECT actor_id FROM world_actors WHERE LOWER(actor_id) = ? OR LOWER(display_name) = ?",
+                (role_or_actor.lower(), role_or_actor.lower())
+            )
+            row = cursor.fetchone()
+            if row:
+                return [row["actor_id"]]
+            return [role_or_actor.upper()]
+
+        attacker_actors = resolve_actors(attacker_id)
+        defender_actors = resolve_actors(defender_id)
+
+        # Query for matching weapon interaction and stocks where both are deployed in a theater
+        query = """
+            SELECT 
+                wi.interaction_id,
+                wi.attacker_family,
+                wi.defender_family,
+                wi.p_success_min,
+                wi.p_success_max,
+                wi.ammo_consume_attacker,
+                wi.ammo_consume_defender,
+                pi_att.actor_id AS attacker_concrete_id,
+                pi_def.actor_id AS defender_concrete_id,
+                pi_att.stock_current AS stock_attacker,
+                pi_def.stock_current AS stock_defender
+            FROM weapon_interactions wi
+            JOIN platform_inventories pi_att ON pi_att.platform_family = wi.attacker_family
+            JOIN platform_inventories pi_def ON pi_def.platform_family = wi.defender_family
+            JOIN actor_deployments ad_att ON ad_att.actor_id = pi_att.actor_id AND ad_att.quantity_deployed > 0
+            JOIN military_platforms mp_att ON ad_att.platform_id = mp_att.platform_id AND mp_att.family = wi.attacker_family
+            JOIN actor_deployments ad_def ON ad_def.actor_id = pi_def.actor_id AND ad_def.quantity_deployed > 0
+            JOIN military_platforms mp_def ON ad_def.platform_id = mp_def.platform_id AND mp_def.family = wi.defender_family
+            WHERE pi_att.actor_id IN ({})
+              AND pi_def.actor_id IN ({})
+        """.format(
+            ",".join("?" for _ in attacker_actors),
+            ",".join("?" for _ in defender_actors)
+        )
+
+        params = tuple(attacker_actors + defender_actors)
+        cursor.execute(query, params)
+        match = cursor.fetchone()
+
+        if match:
+            attacker_concrete_id = match["attacker_concrete_id"]
+            defender_concrete_id = match["defender_concrete_id"]
+            attacker_family = match["attacker_family"]
+            defender_family = match["defender_family"]
+            p_success_min = match["p_success_min"] if match["p_success_min"] is not None else 0.65
+            p_success_max = match["p_success_max"] if match["p_success_max"] is not None else 0.85
+            ammo_consume_attacker = match["ammo_consume_attacker"] if match["ammo_consume_attacker"] is not None else 1
+            ammo_consume_defender = match["ammo_consume_defender"] if match["ammo_consume_defender"] is not None else 1
+            stock_attacker = int(match["stock_attacker"]) if match["stock_attacker"] is not None else 0
+            stock_defender = int(match["stock_defender"]) if match["stock_defender"] is not None else 0
+        else:
+            # Fallback if no matching interaction is found
+            attacker_concrete_id = attacker_actors[0] if attacker_actors else None
+            defender_concrete_id = defender_actors[0] if defender_actors else None
+            attacker_family = None
+            defender_family = None
+            stock_attacker = 1000
+            stock_defender = 1000
+            ammo_consume_attacker = 1
+            ammo_consume_defender = 1
+            p_success_min = 0.65
+            p_success_max = 0.85
+
+            if attacker_actors:
+                cursor.execute(
+                    """
+                    SELECT pi.platform_family, pi.actor_id, pi.stock_current
+                    FROM platform_inventories pi
+                    JOIN actor_deployments ad ON ad.actor_id = pi.actor_id AND ad.quantity_deployed > 0
+                    JOIN military_platforms mp ON ad.platform_id = mp.platform_id AND mp.family = pi.platform_family
+                    WHERE pi.actor_id IN ({})
+                    LIMIT 1
+                    """.format(",".join("?" for _ in attacker_actors)),
+                    tuple(attacker_actors)
+                )
+                att_row = cursor.fetchone()
+                if att_row:
+                    attacker_family = att_row["platform_family"]
+                    attacker_concrete_id = att_row["actor_id"]
+                    stock_attacker = int(att_row["stock_current"]) if att_row["stock_current"] is not None else 0
+
+            if defender_actors:
+                cursor.execute(
+                    """
+                    SELECT pi.platform_family, pi.actor_id, pi.stock_current
+                    FROM platform_inventories pi
+                    JOIN actor_deployments ad ON ad.actor_id = pi.actor_id AND ad.quantity_deployed > 0
+                    JOIN military_platforms mp ON ad.platform_id = mp.platform_id AND mp.family = pi.platform_family
+                    WHERE pi.actor_id IN ({})
+                    LIMIT 1
+                    """.format(",".join("?" for _ in defender_actors)),
+                    tuple(defender_actors)
+                )
+                def_row = cursor.fetchone()
+                if def_row:
+                    defender_family = def_row["platform_family"]
+                    defender_concrete_id = def_row["actor_id"]
+                    stock_defender = int(def_row["stock_current"]) if def_row["stock_current"] is not None else 0
+    finally:
+        conn.close()
+
+    if stock_defender <= 0:
+        return {
+            "intercepted": False,
+            "p_success": 0.0,
+            "roll": 1.0,
+            "attacker_concrete_id": attacker_concrete_id,
+            "defender_concrete_id": defender_concrete_id,
+            "attacker_family": attacker_family,
+            "defender_family": defender_family,
+            "ammo_consume_attacker": ammo_consume_attacker,
+            "ammo_consume_defender": ammo_consume_defender,
+            "stock_attacker": stock_attacker,
+            "stock_defender": stock_defender,
+            "p_success_min": p_success_min,
+            "p_success_max": p_success_max,
+        }
+
+    p_success = (p_success_min + p_success_max) / 2.0
+    rng = random.Random(seed)
+    roll = rng.random()
+
+    intercepted = roll <= p_success
+
+    return {
+        "intercepted": intercepted,
+        "p_success": p_success,
+        "roll": roll,
+        "attacker_concrete_id": attacker_concrete_id,
+        "defender_concrete_id": defender_concrete_id,
+        "attacker_family": attacker_family,
+        "defender_family": defender_family,
+        "ammo_consume_attacker": ammo_consume_attacker,
+        "ammo_consume_defender": ammo_consume_defender,
+        "stock_attacker": stock_attacker,
+        "stock_defender": stock_defender,
+        "p_success_min": p_success_min,
+        "p_success_max": p_success_max,
+    }
+
+
 TERMS_AND_PARAMETERS = [
     {
         "名稱": "PMESII",
@@ -1002,6 +1187,8 @@ def build_turn_event_ledger(
     red_coa: dict[str, Any],
     evidence_rows: list[dict[str, Any]],
     seed: int,
+    database_path: str | Path | None = None,
+    commit_ammo_deduction: bool = False,
 ) -> list[dict[str, Any]]:
     locations = _infer_locations(mission)
     assumptions = [str(row.get("name", "")) for row in scenario.get("assumption_tree", []) if isinstance(row, dict)]
@@ -1028,6 +1215,59 @@ def build_turn_event_ledger(
     risk_value = (float(state_after.get("M", 50.0)) + float(state_after.get("I", 50.0))) / 2.0
     top_blue = sorted(blue_coa.get("subagent_actions", []), key=lambda row: abs(float(row.get("expected_delta", 0.0))), reverse=True)[:2]
     top_red = sorted(red_coa.get("subagent_actions", []), key=lambda row: abs(float(row.get("expected_delta", 0.0))), reverse=True)[:2]
+
+    # Combat Resolution
+    combat_detail = "紅隊以代理節點與遠距打擊進行模擬交火測試，目標是壓迫藍隊反應節奏。"
+    combat_outcome = "交火造成戰術摩擦升高，但仍停留在可控範圍內。"
+    combat_prob = 0.68
+
+    db_path = Path(database_path) if database_path else None
+    if db_path and db_path.exists():
+        res = calculate_combat_outcome(db_path, "Red", "Blue", seed)
+        # Deduct ammunition from inventories if defender has stock and commit_ammo_deduction is True
+        if res.get("stock_defender", 0) > 0:
+            if commit_ammo_deduction:
+                conn = sqlite3.connect(db_path)
+                try:
+                    if res.get("attacker_concrete_id") and res.get("attacker_family"):
+                        new_att_stock = max(0, res["stock_attacker"] - res["ammo_consume_attacker"])
+                        conn.execute(
+                            "UPDATE platform_inventories SET stock_current = ? WHERE actor_id = ? AND platform_family = ?",
+                            (new_att_stock, res["attacker_concrete_id"], res["attacker_family"])
+                        )
+                    if res.get("defender_concrete_id") and res.get("defender_family"):
+                        new_def_stock = max(0, res["stock_defender"] - res["ammo_consume_defender"])
+                        conn.execute(
+                            "UPDATE platform_inventories SET stock_current = ? WHERE actor_id = ? AND platform_family = ?",
+                            (new_def_stock, res["defender_concrete_id"], res["defender_family"])
+                        )
+                    conn.commit()
+                finally:
+                    conn.close()
+            # Update stocks in res for description
+            res["stock_attacker"] = max(0, res["stock_attacker"] - res["ammo_consume_attacker"])
+            res["stock_defender"] = max(0, res["stock_defender"] - res["ammo_consume_defender"])
+
+        intercepted = res["intercepted"]
+        roll = res["roll"]
+        p_success = res["p_success"]
+        att_fam = res.get("attacker_family") or "遠距打擊武器"
+        def_fam = res.get("defender_family") or "防空攔截系統"
+        att_stock = res.get("stock_attacker", 0)
+        def_stock = res.get("stock_defender", 0)
+
+        if intercepted:
+            combat_detail = f"紅隊使用 {att_fam} 發動遠距打擊，藍隊以 {def_fam} 成功進行防空攔截（攔截率: {p_success:.2f}, 隨機骰值: {roll:.2f} <= {p_success:.2f}）。"
+            combat_outcome = f"攔截成功。交火未造成實質基礎設施損害。雙方剩餘彈藥：紅隊 {att_fam} ({att_stock})，藍隊 {def_fam} ({def_stock})。"
+            combat_prob = p_success
+        else:
+            if res.get("stock_defender", 0) <= 0:
+                combat_detail = f"紅隊使用 {att_fam} 發動攻擊，藍隊因 {def_fam} 彈藥枯竭（剩餘 0）無法執行攔截行動。"
+                combat_outcome = f"打擊穿透防線。交火造成戰術摩擦升高。雙方剩餘彈藥：紅隊 {att_fam} ({att_stock})，藍隊 {def_fam} (0)。"
+            else:
+                combat_detail = f"紅隊使用 {att_fam} 發動遠距打擊，藍隊嘗試以 {def_fam} 攔截但宣告失敗（攔截率: {p_success:.2f}, 隨機骰值: {roll:.2f} > {p_success:.2f}）。"
+                combat_outcome = f"攔截失敗，打擊穿透防線。交火造成局部戰術損失與摩擦升高。雙方剩餘彈藥：紅隊 {att_fam} ({att_stock})，藍隊 {def_fam} ({def_stock})。"
+            combat_prob = p_success
 
     def _event_row(
         idx: int,
@@ -1074,7 +1314,7 @@ def build_turn_event_ledger(
             f"藍隊執行軍事機動與前沿部署，重點在 {', '.join(row.get('dimension', '') for row in top_blue) or 'M/I'} 維度。",
             "提高前沿壓制與威懾可見度，但也同步拉高反制誘因。",
             "低損耗帶",
-            {"M": abs(delta_m), "I": abs(delta_i) * 0.4},
+            {"M": delta_m, "I": delta_i * 0.4},
             0.62,
             by_type["military_movement"],
             assumptions[:2],
@@ -1085,11 +1325,11 @@ def build_turn_event_ledger(
             "Red",
             "Blue",
             locations[(turn_id + 1) % len(locations)],
-            "紅隊以代理節點與遠距打擊進行模擬交火測試，目標是壓迫藍隊反應節奏。",
-            "交火造成戰術摩擦升高，但仍停留在可控範圍內。",
-            _loss_band_from_risk(risk_value),
-            {"M": abs(delta_m) * 1.2, "Infra": abs(delta_infra) * 0.7},
-            0.68,
+            combat_detail,
+            combat_outcome,
+            _loss_band_from_risk(risk_value) if not (db_path and db_path.exists() and res["intercepted"]) else "無損耗",
+            {"M": delta_m * 1.2, "Infra": delta_infra * 0.7} if not (db_path and db_path.exists() and res["intercepted"]) else {"M": 0.0, "Infra": 0.0},
+            combat_prob,
             by_type["simulated_engagement"],
             assumptions[1:3],
         ),
@@ -1102,7 +1342,7 @@ def build_turn_event_ledger(
             "藍隊推動新一輪金融/能源制裁組合，壓縮紅隊資源機動空間。",
             "短期削弱紅隊資源彈性，但可能刺激對稱外的反制行為。",
             "中損耗帶",
-            {"E": abs(delta_e) * 1.1, "P": abs(delta_p) * 0.6},
+            {"E": delta_e * 1.1, "P": delta_p * 0.6},
             0.59,
             by_type["sanction_action"],
             assumptions[:2],
@@ -1116,7 +1356,7 @@ def build_turn_event_ledger(
             "白隊推動去衝突窗口與第三方斡旋，要求雙方降低誤判風險。",
             "降階訊號可暫時壓住失控鏈，但需要持續配合軍經層面的風險壓制。",
             "低損耗帶",
-            {"P": abs(delta_p) * 0.8, "I": abs(delta_i) * 0.5},
+            {"P": delta_p * 0.8, "I": delta_i * 0.5},
             0.54,
             by_type["diplomatic_mediation"],
             assumptions[:2],
@@ -1130,7 +1370,7 @@ def build_turn_event_ledger(
             f"紅隊執行資訊操作與敘事污染，焦點在 {', '.join(row.get('dimension', '') for row in top_red) or 'I/P'} 維度。",
             "提升決策雜訊與誤判壓力，迫使藍隊提高驗證成本。",
             "中損耗帶",
-            {"I": abs(delta_i) * 1.3, "S": abs(float(state_after.get('S', 50.0)) - float(state_before.get('S', 50.0)))},
+            {"I": delta_i * 1.3, "S": abs(float(state_after.get('S', 50.0)) - float(state_before.get('S', 50.0)))},
             0.66,
             by_type["info_operation"],
             assumptions[1:3],
@@ -1144,7 +1384,7 @@ def build_turn_event_ledger(
             "區域運補/港口/通信節點遭受中斷型壓力測試，造成運補節奏不穩。",
             "基礎設施韌性下降會放大後續軍事與經濟風險傳導。",
             "中損耗帶",
-            {"Infra": abs(delta_infra) * 1.4, "E": abs(delta_e) * 0.7},
+            {"Infra": delta_infra * 1.4, "E": delta_e * 0.7},
             0.63,
             by_type["infrastructure_disruption"],
             assumptions[:2],
@@ -3582,6 +3822,7 @@ def execute_turn(
     baseline_db_path = mission.get("baseline_db_path") or str(
         Path(mission.get("working_dir", ".")) / "actor_baseline_db.sqlite"
     )
+    knowledge_db_path = resolve_knowledge_db_path(mission.get("knowledge_db_path"))
     ensure_actor_baseline_db(baseline_db_path, mission, collection_plan)
     if existing_turn_packet and existing_turn_packet.get("captured_evidence"):
         raw_evidence = list(existing_turn_packet.get("captured_evidence", []))
@@ -3624,6 +3865,8 @@ def execute_turn(
         red_coa=red_coa,
         evidence_rows=fused_evidence,
         seed=seed,
+        database_path=knowledge_db_path,
+        commit_ammo_deduction=False,
     )
     fused_evidence = attach_event_metadata_to_evidence(fused_evidence, provisional_event_ledger)
 
@@ -3670,6 +3913,8 @@ def execute_turn(
         red_coa=red_coa,
         evidence_rows=fused_evidence,
         seed=seed,
+        database_path=knowledge_db_path,
+        commit_ammo_deduction=True,
     )
     fused_evidence = attach_event_metadata_to_evidence(fused_evidence, event_ledger)
     baseline_deviations, baseline_deviation_score = compare_events_with_baseline(

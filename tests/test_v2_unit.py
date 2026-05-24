@@ -5,6 +5,8 @@ import subprocess
 import unittest
 from pathlib import Path
 import sys
+from pathlib import Path
+import sys
 import tempfile
 import shutil
 
@@ -19,6 +21,7 @@ from common import (
     attach_event_metadata_to_evidence,
     build_ach_matrix,
     build_turn_event_ledger,
+    calculate_combat_outcome,
     collect_intel_bundle,
     compare_events_with_baseline,
     count_text_units,
@@ -707,6 +710,54 @@ class V2UnitTests(unittest.TestCase):
             conn.close()
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_stochastic_adjudication(self) -> None:
+        import sqlite3
+        tmp = Path(tempfile.mkdtemp(prefix="pmesii_v5_stochastic_test_"))
+        try:
+            db_path = tmp / "wargame_knowledge.sqlite"
+            seed_database(
+                db_path=db_path,
+                mission=self.mission,
+                scenario=self.scenario,
+                actor_config={"blue_priorities": {"M": 0.9}, "red_priorities": {"I": 0.9}},
+                collection_plan={"sources": [{"name": "unit_source", "tier": "public", "independence_group": "unit"}]},
+                references_dir=SKILL_DIR / "references",
+            )
+            res = calculate_combat_outcome(db_path, "Red", "Blue", seed=42)
+            self.assertEqual(res["attacker_concrete_id"], "HOUTHIS")
+            self.assertEqual(res["defender_concrete_id"], "US")
+            self.assertEqual(res["attacker_family"], "cruise_missile")
+            self.assertEqual(res["defender_family"], "surface_combatant")
+            self.assertGreater(res["stock_defender"], 0)
+            self.assertEqual(res["p_success_min"], 0.1)
+            self.assertEqual(res["p_success_max"], 0.9)
+            self.assertEqual(res["p_success"], 0.5)
+            self.assertIn("intercepted", res)
+            self.assertIn("roll", res)
+
+            # Test defender stock <= 0
+            conn = sqlite3.connect(db_path)
+            conn.execute(
+                "UPDATE platform_inventories SET stock_current = 0 WHERE actor_id = 'US' AND platform_family = 'surface_combatant'"
+            )
+            conn.commit()
+            conn.close()
+
+            res_empty = calculate_combat_outcome(db_path, "Red", "Blue", seed=42)
+            self.assertFalse(res_empty["intercepted"])
+            self.assertEqual(res_empty["p_success"], 0.0)
+            self.assertEqual(res_empty["roll"], 1.0)
+            self.assertEqual(res_empty["stock_defender"], 0)
+
+            # Test default probability bounds
+            res_default = calculate_combat_outcome(db_path, "FOO", "BAR", seed=42)
+            self.assertEqual(res_default["p_success_min"], 0.65)
+            self.assertEqual(res_default["p_success_max"], 0.85)
+            self.assertEqual(res_default["p_success"], 0.75)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
 
 
 if __name__ == "__main__":

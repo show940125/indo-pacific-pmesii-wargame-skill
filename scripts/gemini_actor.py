@@ -730,6 +730,8 @@ def execute_gemini_actor_turn(
         red_coa=red_coa,
         evidence_rows=fused_evidence,
         seed=seed,
+        database_path=knowledge_db_path,
+        commit_ammo_deduction=False,
     )
     fused_evidence = attach_event_metadata_to_evidence(fused_evidence, provisional_event_ledger)
     adjudication, next_state = adjudicate_turn(
@@ -762,6 +764,8 @@ def execute_gemini_actor_turn(
         red_coa=red_coa,
         evidence_rows=fused_evidence,
         seed=seed,
+        database_path=knowledge_db_path,
+        commit_ammo_deduction=controller.get("accepted", True),
     )
     fused_evidence = attach_event_metadata_to_evidence(fused_evidence, event_ledger)
     baseline_db_path = mission.get("baseline_db_path") or str(working_dir / "actor_baseline_db.sqlite")
