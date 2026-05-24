@@ -1,8 +1,10 @@
-# Indo-Pacific PMESII 兵推 Skill（V4.5）
+# Indo-Pacific PMESII 兵推 Skill（V5）
 
 [English Version](./README.md)
 
-這是一個用於印太與中東戰略層 PMESII 兵推的 Codex Skill。V4.5 的主流程是「concrete Gemini actor + Codex/Python controller + SQLite 世界知識庫」：Gemini 負責具體 actor 的角色內推理，Codex/Python 負責回合控制、資料抽取、規則約束、品質閘門、輸出整合與可回放紀錄。
+這是一個用於印太與中東戰略層 PMESII 兵推的 Codex Skill。V5 的主流程是「concrete Gemini actor + Codex/Python controller + SQLite 世界知識庫」：Gemini 負責具體 actor 的角色內推理，Codex/Python 負責回合控制、資料抽取、規則約束、品質閘門、輸出整合與可回放紀錄。
+
+V5 引入了隨機性戰鬥裁決、地理轉場延遲、後勤彈藥儲備消耗，以及動態 Constraints 的閉環控制，使兵棋推演結果更加擬真且具備量化依據。
 
 本專案適合政策、戰略、危機管理與結構化分析演練。它有型號級軍事與 PMESII 接地，但用途是戰略模擬；即時 targeting、機密 ORBAT、精確傷亡預測不屬於這個 repo 的承諾範圍。
 
@@ -11,14 +13,15 @@
 目前流程是 actor-driven：
 
 - Gemini 扮演具體 actor，例如美國、中國、台灣、日本、伊朗、以色列、NATO、GCC、Houthis、Hezbollah。
-- V4.5 會在每回合逐一呼叫具體 actor，再盤整同盟分歧、代理人自主升級風險，以及 Blue/Red aggregate COA。
+- V5 會在每回合逐一呼叫具體 actor，再盤整同盟分歧、代理人自主升級風險，以及 Blue/Red aggregate COA。
 - Codex/Python 建立 turn packet、查詢 SQLite context、驗證 actor JSON、套用約束、記錄違規、整合報告。
 - SQLite 保存 actor 身分、PMESII 指標、capability rules、軍事平台 band、來源 provenance 與 turn memory。
 - 舊的 deterministic engine 保留為本地 fallback，可用 `--engine local_synthetic` 執行。
+- 自癒機制：推演時會自動檢測缺失的 SQLite 知識庫並進行自動播種。
 
-抽象的 `Blue`、`Red`、`White`、`Neutral` 是 scenario role。V4 會依情境把這些 role 映射到具體國家、組織或非國家行為者。
+抽象的 `Blue`、`Red`、`White`、`Neutral` 是 scenario role。V5 會依情境把這些 role 映射到具體國家、組織或非國家行為者。
 
-## V4.5 架構
+## V5 架構
 
 ```mermaid
 flowchart TD
@@ -43,18 +46,18 @@ flowchart TD
 - `Python scripts`：編排 run、建立 context pack、驗證 schema、保存 artifacts、執行 quality gates。
 - `SQLite knowledge DB`：提供 actor baseline、PMESII context、capability grounding、軍事建模資料與 provenance。
 
-## V4.5 每回合怎麼跑
+## V5 每回合怎麼跑
 
 每個 `gemini_actor` turn 依這個 pipeline 執行：
 
 1. 從 `mission.json`、`scenario_pack.json`、`actor_config.json`、`collection_plan.json` 建立 turn packet。
 2. 依 scenario 選出具體 actor，映射到 Blue/Red/White/Neutral/Non-state。
-3. 查詢 `data/wargame_knowledge.sqlite`，取得 actor PMESII metrics、capabilities、constraints、military platforms、interaction rules、source claims 與最近 turn memory。
+3. 自動檢查並自癒種植 `data/wargame_knowledge.sqlite`（若缺失），隨後查詢取得 actor PMESII metrics、capabilities、constraints、military platforms、V5 平台與彈藥庫存、戰區機動轉場、interaction rules、source claims 與最近 turn memory。
 4. 用 `assets/prompts/` 渲染 actor prompt。
 5. 逐一呼叫具體 Gemini actor，並加上 Intel/Fusion 與 White support call；測試時可用 `--mock-gemini` 走 deterministic mock。
 6. 依 `assets/schemas/` 驗證所有 actor response。
 7. Codex controller 檢查不存在的能力、缺乏資料庫接地、無邊界升級、忽略 countermeasure、White dissent 缺失等問題。
-8. 保存 prompt、raw response、parsed JSON、validation report、violations、controller decision 與 replay artifacts。
+8. 保存 prompt、raw response、parsed JSON、validation report、violations、controller decision、平台/後勤彈藥 deltas 與 replay artifacts。。
 
 Gemini 的自由散文不能直接改變 state。只有通過 JSON schema 並經 controller 裁決的 state delta 會進入 replay record。Live Gemini 支援 `--gemini-launch-mode auto|popen_headless|pty_interactive|mcp`；失敗時會透明 fallback，原因寫入 `validation.json`。
 
@@ -109,9 +112,18 @@ V4 把資料庫升級為 `data/wargame_knowledge.sqlite`，定位是穩定的本
 
 詳見 [references/military-modeling-rules.md](./references/military-modeling-rules.md)。
 
+## V5 動態後勤與戰鬥裁決
+
+V5 版本引入了以下四大深層軍事建模機制：
+
+- **隨機性蒙地卡羅戰鬥裁決**：結合 `weapon_interactions` 中設定的攔截成功率邊界（`p_success_min` 與 `p_success_max`）與彈藥消耗，利用隨機性蒙地卡羅骰判定防空與打擊成敗。實作防雙重扣除機制。
+- **戰區機動延遲 (Transit Delay) 建模**：部隊跨戰區航行或轉場時會進入 `transit` 狀態，且在抵達目標前將被硬性阻斷執行任何戰術或戰鬥行動。
+- **彈藥與物流儲備動態消耗與補給**：每回合結束時依待命 (standby) 或主動 (active) 狀態動態計算消耗，並引入後勤自然生產，形成物流閉環。
+- **動態 Constraints 約束 Prompt 閉環控制**：當回合 PMESII 指標（如軍事壓力 M）高於閾值時，會自動生成下一回合對行為者的限制令寫入資料庫，限制其決策行為。
+
 ## 快速開始
 
-執行 deterministic V4 Gemini-actor smoke campaign：
+執行 deterministic V5 Gemini-actor smoke campaign：
 
 ```powershell
 python scripts/run_campaign.py `
@@ -119,7 +131,7 @@ python scripts/run_campaign.py `
   --scenario in/scenario_pack.json `
   --actor-config in/actor_config.json `
   --collection-plan in/collection_plan.json `
-  --out out/v4_mock_run `
+  --out out/v5_mock_run `
   --engine gemini_actor `
   --mock-gemini `
   --turns 1
@@ -127,7 +139,7 @@ python scripts/run_campaign.py `
 
 若某個 scenario 需要獨立知識庫，可在 `run_campaign.py` 或 `run_turn.py` 加 `--knowledge-db <path>`。沒有指定時，兩者都使用 `data/wargame_knowledge.sqlite`。
 
-建置並檢查 V4 世界知識庫：
+建置並檢查 V5 世界知識庫：
 
 ```powershell
 python scripts/world_kb_import.py `
@@ -153,21 +165,21 @@ python scripts/run_campaign.py `
   --turns 1
 ```
 
-執行內建的 2026-05-08 美伊／荷姆茲五回合 V4.5 example：
+執行內建的 2026-05-22 美伊／荷姆茲三回合 V5 live 實戰推演：
 
 ```powershell
 python scripts/run_campaign.py `
-  --mission in/mission_us_iran_20260508.json `
-  --scenario in/scenario_pack_us_iran_20260508.json `
-  --actor-config in/actor_config_us_iran_20260508.json `
-  --collection-plan in/collection_plan_us_iran_20260508.json `
-  --out out/us_iran_20260508_v45_example_5turn `
+  --mission in/mission_us_iran_20260522.json `
+  --scenario in/scenario_pack_us_iran_20260522.json `
+  --actor-config in/actor_config_us_iran_20260522.json `
+  --collection-plan in/collection_plan_us_iran_20260522.json `
+  --out out/us_iran_20260522_v5_live_3turn `
   --engine gemini_actor `
   --actor-execution v45_concrete `
   --actor-scope core `
   --gemini-launch-mode auto `
   --gemini-timeout 180 `
-  --turns 5 `
+  --turns 3 `
   --report-profile dual_layer `
   --ach-profile full `
   --narrative-mode event_cards `
@@ -194,7 +206,7 @@ CLI 支援 actor id、alias、display name 與 scenario role。`Blue`、`Red` �
 
 ## 輸出與回放
 
-典型 V4 knowledge 與 run 輸出包括：
+典型 V5 knowledge 與 run 輸出包括：
 
 - `data/wargame_knowledge.sqlite`
 - `out/<run>/knowledge_db_manifest.json`
@@ -207,9 +219,10 @@ CLI 支援 actor id、alias、display name 與 scenario role。`Blue`、`Red` �
 - `ach_detailed.json`
 - `report_exec.md`
 - `report_analyst.md`
+- `report_news.md`
 - `verify_trace.json`
 
-`data/wargame_knowledge.sqlite` 是長期本地主知識庫。`out/<run>/knowledge_db_manifest.json` 記錄該 run 使用的 DB 狀態，`replay_bundle/turn_*_actor_context_pack.json` 記錄該回合 actor 實際看到的上下文。Gemini call 目錄會保存 `prompt.md`、`raw_response.txt`、`parsed.json`、`validation.json`，方便重跑與 debug。V4.5 也會輸出 `turn_*_multi_actor_synthesis.json`、`turn_*_alliance_dissent.json`、`turn_*_proxy_autonomy_risk.json`。
+`data/wargame_knowledge.sqlite` 是長期本地主知識庫。`out/<run>/knowledge_db_manifest.json` 記錄該 run 使用的 DB 狀態，`replay_bundle/turn_*_actor_context_pack.json` 記錄該回合 actor 實際看到的上下文。Gemini call 目錄會保存 `prompt.md`、`raw_response.txt`、`parsed.json`、`validation.json`，方便重跑與 debug。V5 也會輸出 `turn_*_multi_actor_synthesis.json`、`turn_*_alliance_dissent.json`、`turn_*_proxy_autonomy_risk.json`。
 
 ## 來源政策與品質閘門
 

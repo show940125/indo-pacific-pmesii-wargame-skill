@@ -5,7 +5,7 @@ description: Use when planning or running strategic-level Indo-Pacific PMESII wa
 
 # Indo-Pacific PMESII Wargame
 
-Use this skill to run a strategic PMESII campaign simulation where Gemini performs concrete actor roleplay and Codex/Python acts as observer, controller, judge, rule keeper, and report integrator. V4.5 adds per-actor Gemini execution, SQLite world knowledge context, multi-actor synthesis, alliance dissent checks, proxy autonomy risk checks, OAuth diagnostics, and transparent live-call fallback.
+Use this skill to run a strategic PMESII campaign simulation where Gemini performs concrete actor roleplay and Codex/Python acts as observer, controller, judge, rule keeper, and report integrator. V5 adds per-actor Gemini execution, SQLite world knowledge context, stochastic combat adjudication, spatial transit delays, munitions depletion, dynamic constraints, and SQLite self-healing.
 
 Default output language is Traditional Chinese (`zh-TW`) for reports and key judgments.
 
@@ -16,21 +16,22 @@ Default output language is Traditional Chinese (`zh-TW`) for reports and key jud
 - User needs SQLite-backed actor doctrine, PMESII context, and scenario facts.
 - User needs repeatable runs, replay bundles, evidence chains, ACH, and sensitivity outputs.
 
-## V4.5 Topology
+## V5 Topology
 
-- `Codex Controller`: prepares packets, queries SQLite, validates actor JSON, freezes unsafe state transitions, renders reports.
+- `Codex Controller`: prepares packets, queries SQLite, validates actor JSON, freezes unsafe state transitions, updates munitions and transit states, renders reports.
 - `Concrete Gemini Actors`: US, IR, IL, SA, AE, Houthis, Hezbollah, or scenario-selected actors each produce independent JSON.
 - `Gemini Intel`: fuses evidence and source gaps.
 - `Gemini White`: reviews rules, legal/ROE risk, probability, counterdeception, dissent, and uncertainty.
 - `Multi-Actor Synthesis`: aggregates concrete actors into Blue/Red COAs after checking dissent and proxy risk.
-- `Python Adjudication`: converts accepted COAs into state deltas, event ledgers, ACH, KJs, reports, and replay artifacts.
+- `Python Adjudication`: converts accepted COAs into state deltas, transit delays, munitions consumption, event ledgers, ACH, KJs, reports, and replay artifacts.
+- `SQLite Self-Healing`: automatically checks, builds, and seeds the wargame knowledge database if missing.
 
 ## Primary Commands
 
-Run a V3 campaign with deterministic mock Gemini actors for validation:
+Run a deterministic V5 Gemini-actor smoke campaign:
 
 ```powershell
-python scripts/run_campaign.py --mission in/mission.json --scenario in/scenario_pack.json --actor-config in/actor_config.json --collection-plan in/collection_plan.json --out out/v3_mock_run_001 --engine gemini_actor --mock-gemini --turns 1
+python scripts/run_campaign.py --mission in/mission.json --scenario in/scenario_pack.json --actor-config in/actor_config.json --collection-plan in/collection_plan.json --out out/v5_mock_run --engine gemini_actor --mock-gemini --turns 1
 ```
 
 Run Gemini CLI OAuth diagnostics before a live run:
@@ -53,45 +54,45 @@ Open a project-scoped OAuth repair window when `oauth-personal` falls into an au
 powershell -ExecutionPolicy Bypass -File scripts/open_gemini_oauth_repair.ps1
 ```
 
-Run the May 8, 2026 US-Iran/Hormuz V4.5 example:
+Run the bundled May 22, 2026 US-Iran/Hormuz V5 example for three live turns:
 
 ```powershell
-python scripts/run_campaign.py --mission in/mission_us_iran_20260508.json --scenario in/scenario_pack_us_iran_20260508.json --actor-config in/actor_config_us_iran_20260508.json --collection-plan in/collection_plan_us_iran_20260508.json --out out/us_iran_20260508_v45_example_5turn --engine gemini_actor --actor-execution v45_concrete --actor-scope core --gemini-launch-mode auto --gemini-timeout 180 --turns 5 --report-profile dual_layer --ach-profile full --narrative-mode event_cards --length-policy warn
+python scripts/run_campaign.py --mission in/mission_us_iran_20260522.json --scenario in/scenario_pack_us_iran_20260522.json --actor-config in/actor_config_us_iran_20260522.json --collection-plan in/collection_plan_us_iran_20260522.json --out out/us_iran_20260522_v5_live_3turn --engine gemini_actor --actor-execution v45_concrete --actor-scope core --gemini-launch-mode auto --gemini-timeout 180 --turns 3 --report-profile dual_layer --ach-profile full --narrative-mode event_cards --length-policy warn
 ```
 
-By default, V4 Gemini actor runs use `data/wargame_knowledge.sqlite`. Use `--knowledge-db <path>` only when a scenario needs an isolated local knowledge DB.
+By default, V5 Gemini actor runs use `data/wargame_knowledge.sqlite`. Use `--knowledge-db <path>` only when a scenario needs an isolated local knowledge DB.
 
-Run a V4.5 campaign with live Gemini CLI fallback:
+Run a V5 campaign with live Gemini CLI fallback:
 
 ```powershell
-python scripts/run_campaign.py --mission in/mission.json --scenario in/scenario_pack.json --actor-config in/actor_config.json --collection-plan in/collection_plan.json --out out/v45_gemini_run_001 --engine gemini_actor --gemini-launch-mode auto --gemini-timeout 180 --turns 1
+python scripts/run_campaign.py --mission in/mission.json --scenario in/scenario_pack.json --actor-config in/actor_config.json --collection-plan in/collection_plan.json --out out/v5_gemini_run_001 --engine gemini_actor --gemini-launch-mode auto --gemini-timeout 180 --turns 1
 ```
 
 Run the legacy deterministic engine:
 
 ```powershell
-python scripts/run_campaign.py --mission in/mission.json --scenario in/scenario_pack.json --actor-config in/actor_config.json --collection-plan in/collection_plan.json --out out/run_001 --engine local_synthetic
+python scripts/run_campaign.py --mission in/mission.json --scenario in/scenario_pack.json --actor-config in/actor_config.json --collection-plan in/collection_plan.json --out out/local_synthetic_run --engine local_synthetic --turns 1
 ```
 
-Single-turn V3 workflow:
+Single-turn V5 workflow:
 
 ```powershell
 python scripts/run_turn.py --mission in/mission.json --scenario in/scenario_pack.json --actor-config in/actor_config.json --collection-plan in/collection_plan.json --turn-id 1 --out out/turn_01_result.json --engine gemini_actor --mock-gemini
 ```
 
-Build or inspect the V3 knowledge database:
+Build or inspect the V5 knowledge database:
 
 ```powershell
-python scripts/knowledge_db.py --db data/wargame_knowledge.sqlite --mission in/mission.json --scenario in/scenario_pack.json --actor-config in/actor_config.json --collection-plan in/collection_plan.json --references-dir references
+python scripts/world_kb_import.py --db data/wargame_knowledge.sqlite --mission in/mission.json --scenario in/scenario_pack.json --actor-config in/actor_config.json --collection-plan in/collection_plan.json --references-dir references
 ```
 
-Build and inspect the V4 world knowledge layer:
+Build and inspect the V5 world knowledge layer:
 
 ```powershell
 python scripts/world_kb_import.py --db data/wargame_knowledge.sqlite --mission in/mission.json --scenario in/scenario_pack.json --actor-config in/actor_config.json --collection-plan in/collection_plan.json --references-dir references --context-actor Blue
 ```
 
-Query the V4 knowledge DB for Gemini/GPT/Codex context:
+Query the V5 knowledge DB for Gemini/GPT/Codex context:
 
 ```powershell
 python scripts/query_knowledge_db.py actor-context --actor China --mission in/mission.json --scenario in/scenario_pack.json --question "台海壓力行動" --format json --pretty
@@ -122,6 +123,7 @@ Fail or freeze a turn if any condition is unmet:
 
 - `report_exec.md`
 - `report_analyst.md`
+- `report_news.md`
 - `report.md`
 - `dashboard.json`
 - `ach.json`
@@ -148,14 +150,14 @@ Fail or freeze a turn if any condition is unmet:
 - `turn_*_violations.json`
 - `run_artifact.json`
 
-## V3 Contracts
+## V5 Contracts
 
 - `ActorContextPack` includes actor identity, doctrine, PMESII indicators, capabilities, constraints, sources, scenario facts, and turn memory.
 - `GeminiActorResponse` is a JSON object for `Intel`, `Blue`, `Red`, or `White`.
 - `ControllerAdjudication` decides whether actor outputs may affect state.
 - `KnowledgeDbManifest` records `data/wargame_knowledge.sqlite` schema version and table counts for the run.
-- V4 `ActorContextPack` includes `concrete_actor_id`, `concrete_actor_context`, `scenario_role_map`, military platforms, capability rules, weapon interactions, field provenance, and source documents.
-- Codex does not roleplay Blue, Red, White, or Intel actor intent in the V3 path.
+- V5 `ActorContextPack` includes `concrete_actor_id`, `concrete_actor_context`, `scenario_role_map`, military platforms, platform inventories, connection transits, capability rules, weapon interactions, field provenance, and source documents.
+- Codex does not roleplay Blue, Red, White, or Intel actor intent.
 
 ## References
 
