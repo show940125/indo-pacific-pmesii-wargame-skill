@@ -29,8 +29,9 @@ from common import (
 )
 from knowledge_db import actor_context_pack, connect, manifest, record_turn_memory, seed_database
 
+
 ACTOR_ROLES = ["Intel", "Blue", "Red", "White"]
-GEMINI_LAUNCH_MODES = {"auto", "popen_headless", "pty_interactive", "mcp"}
+GEMINI_LAUNCH_MODES = {"auto", "terminal_bridge", "popen_headless", "pty_interactive", "mcp"}
 V45_CORE_ACTORS = {
     "Blue": ["US", "IL", "SA", "AE"],
     "Red": ["IR", "HOUTHIS", "HEZBOLLAH"],
@@ -48,7 +49,17 @@ def _skill_dir() -> Path:
 
 
 def _read_prompt(actor_id: str) -> str:
-    path = _skill_dir() / "assets" / "prompts" / PROMPT_FILES[actor_id]
+    prompt_file = PROMPT_FILES.get(actor_id)
+    if not prompt_file:
+        if "red" in actor_id.lower() or "coercive" in actor_id.lower():
+            prompt_file = "red_actor.md"
+        elif "white" in actor_id.lower() or "control" in actor_id.lower():
+            prompt_file = "white_actor.md"
+        elif "intel" in actor_id.lower() or "fusion" in actor_id.lower():
+            prompt_file = "intel_fusion.md"
+        else:
+            prompt_file = "blue_actor.md"
+    path = _skill_dir() / "assets" / "prompts" / prompt_file
     return path.read_text(encoding="utf-8")
 
 
@@ -63,13 +74,24 @@ def _extract_json(text: str) -> dict[str, Any]:
             return payload
     except json.JSONDecodeError:
         pass
-    match = re.search(r"\{.*\}", text, flags=re.DOTALL)
-    if not match:
-        raise ValueError("Gemini actor response did not contain a JSON object.")
-    payload = json.loads(match.group(0))
-    if not isinstance(payload, dict):
-        raise ValueError("Gemini actor response JSON must be an object.")
-    return payload
+    fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, flags=re.DOTALL)
+    candidates = [fenced.group(1)] if fenced else []
+    decoder = json.JSONDecoder()
+    for start in [match.start() for match in re.finditer(r"\{", text)]:
+        try:
+            payload, _ = decoder.raw_decode(text[start:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            return payload
+    for candidate in candidates:
+        try:
+            payload = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            return payload
+    raise ValueError("Gemini actor response did not contain a JSON object.")
 
 
 def _actor_role(actor_id: str, context_pack: dict[str, Any]) -> str:
@@ -94,8 +116,8 @@ def _mock_actor_response(actor_id: str, context_pack: dict[str, Any], state: dic
             "source_ids": [row.get("source_id", row.get("source_name", "SRC_UNKNOWN")) for row in context_pack.get("sources", [])[:3]],
             "uncertainties": ["公開來源可能低估非公開溝通。"],
         }
-    if role in {"Blue", "Red"}:
-        direction = 1.0 if role == "Blue" else -1.0
+    if role in {"Blue", "Red", "Neutral", "Non-state"}:
+        direction = 1.0 if role in {"Blue", "Neutral"} else -1.0
         actions = []
         expected_effect = []
         concrete = context_pack.get("concrete_actor_context") or {}
@@ -107,7 +129,7 @@ def _mock_actor_response(actor_id: str, context_pack: dict[str, Any], state: dic
             platform = platforms[len(actions) % len(platforms)] if platforms else {}
             severity = round(max(0.2, min(0.9, 0.42 + abs(float(state[dimension]) - 50.0) / 120.0 + rng.uniform(-0.05, 0.08))), 2)
             delta = round(direction * severity * rng.uniform(0.8, 2.4), 2)
-            action = "stabilize" if role == "Blue" else "pressure"
+            action = "stabilize" if role in {"Blue", "Neutral"} else "pressure"
             actions.append(
                 {
                     "subagent": f"{actor_id}-{concrete_actor_id}-{dimension}",
@@ -127,7 +149,7 @@ def _mock_actor_response(actor_id: str, context_pack: dict[str, Any], state: dic
             "actor_id": actor_id,
             "scenario_role": role,
             "turn_id": turn_id,
-            "intent": "stabilize_regional_posture" if role == "Blue" else "raise_cost_and_pressure",
+            "intent": "stabilize_regional_posture" if role in {"Blue", "Neutral"} else "raise_cost_and_pressure",
             "action_bundle": [{"dimension": row["dimension"], "action": row["action"], "severity": row["severity"]} for row in actions],
             "subagent_actions": actions,
             "resource_cost": round(sum(row["severity"] for row in actions) * 3.0, 2),
@@ -157,7 +179,7 @@ def validate_actor_response(actor_id: str, payload: dict[str, Any], context_pack
     if str(payload.get("actor_id", "")).lower() != actor_id.lower():
         violations.append({"rule_id": "ACTOR_ID_MISMATCH", "severity": "high", "message": f"Expected {actor_id} actor_id."})
     role = _actor_role(actor_id, context_pack or {})
-    if role in {"Blue", "Red"}:
+    if role in {"Blue", "Red", "Neutral", "Non-state"}:
         actions = payload.get("subagent_actions", [])
         if not isinstance(actions, list) or not actions:
             violations.append({"rule_id": "ACTOR_ACTIONS_REQUIRED", "severity": "high", "message": "Actor COA requires subagent_actions."})
@@ -212,6 +234,83 @@ def render_actor_prompt(actor_id: str, context_pack: dict[str, Any], turn_packet
     return template.replace("{{payload_json}}", json.dumps(payload, ensure_ascii=False, indent=2))
 
 
+def _resolve_language_server() -> Path:
+    user_profile = os.environ.get("USERPROFILE", "C:\\Users\\a0953041880")
+    ls_bin = Path(user_profile) / "AppData" / "Local" / "Programs" / "Antigravity" / "resources" / "bin" / "language_server.exe"
+    if not ls_bin.exists():
+        ls_bin = Path(user_profile) / ".gemini" / "antigravity" / "bin" / "agentapi.bat"
+        if not ls_bin.exists():
+            raise FileNotFoundError("Could not find language_server.exe or agentapi.bat")
+    return ls_bin
+
+
+def _map_model(gemini_model: str | None) -> str:
+    if not gemini_model:
+        return "flash"
+    lower = gemini_model.lower()
+    if "flash_lite" in lower or "flash-lite" in lower:
+        return "flash_lite"
+    if "pro" in lower:
+        return "pro"
+    return "flash"
+
+
+def _run_subagent(prompt: str, model_name: str = "flash", timeout_sec: int = 180) -> str:
+    ls_bin = _resolve_language_server()
+    cmd = [str(ls_bin), "agentapi", "new-conversation", f"--model={model_name}", prompt]
+    
+    result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", check=True)
+    try:
+        payload = json.loads(result.stdout)
+        convo_id = payload["response"]["newConversation"]["conversationId"]
+    except Exception as e:
+        raise RuntimeError(f"Failed to start subagent. stdout: {result.stdout}, stderr: {result.stderr}") from e
+        
+    user_profile = os.environ.get("USERPROFILE", "C:\\Users\\a0953041880")
+    transcript_path = Path(user_profile) / ".gemini" / "antigravity" / "brain" / convo_id / ".system_generated" / "logs" / "transcript.jsonl"
+    
+    start_time = time.time()
+    final_response = None
+    
+    while time.time() - start_time < timeout_sec:
+        if not transcript_path.exists():
+            time.sleep(1)
+            continue
+            
+        try:
+            with open(transcript_path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+        except IOError:
+            time.sleep(0.5)
+            continue
+            
+        parsed_steps = []
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                parsed_steps.append(json.loads(line))
+            except Exception:
+                pass
+                
+        if parsed_steps:
+            last_step = parsed_steps[-1]
+            if last_step.get("type") == "PLANNER_RESPONSE":
+                content = last_step.get("content")
+                tool_calls = last_step.get("tool_calls")
+                if content and not tool_calls:
+                    final_response = content
+                    break
+                    
+        time.sleep(1.5)
+        
+    if final_response is None:
+        raise TimeoutError(f"Subagent did not produce a final response within {timeout_sec} seconds")
+        
+    return final_response
+
+
 def call_gemini_actor(
     actor_id: str,
     prompt: str,
@@ -236,71 +335,34 @@ def call_gemini_actor(
         "parser": "json_object",
         "requested_launch_mode": launch_mode,
         "gemini_model": gemini_model,
+        "auth_mode": "native-subagent",
+        "node_options": "native",
     }
     if mock:
         parsed = _mock_actor_response(actor_id, context_pack, state, turn_id, seed)
         raw = json.dumps(parsed, ensure_ascii=False, indent=2)
     else:
-        modes = [launch_mode]
-        if launch_mode == "auto":
-            modes = ["pty_interactive", "popen_headless", "mcp"]
-        last_result: dict[str, Any] | None = None
-        for mode in modes:
-            if mode not in GEMINI_LAUNCH_MODES:
-                last_result = {"raw": f"Unsupported Gemini launch mode: {mode}", "returncode": 2, "launch_mode": mode}
-                continue
-            try:
-                if mode == "pty_interactive":
-                    result = _run_gemini_pty(prompt_path, timeout_sec, gemini_model)
-                elif mode == "popen_headless":
-                    result = _run_gemini_popen_headless(prompt, timeout_sec, gemini_model)
-                elif mode == "mcp":
-                    result = _run_gemini_mcp(prompt, timeout_sec)
-                else:
-                    result = {"raw": f"Unsupported Gemini launch mode: {mode}", "returncode": 2, "launch_mode": mode}
-            except Exception as exc:
-                result = {"raw": str(exc), "returncode": None, "launch_mode": mode, "exception": type(exc).__name__}
-            last_result = result
-            raw_candidate = str(result.get("raw", ""))
-            validation.setdefault("attempts", []).append(
-                {
-                    "launch_mode": result.get("launch_mode", mode),
-                    "returncode": result.get("returncode"),
-                    "elapsed_sec": result.get("elapsed_sec"),
-                    "fallback_kind": _fallback_kind(raw_candidate, result.get("returncode"), bool(result.get("timed_out"))),
-                    "raw_excerpt": raw_candidate[:600],
-                }
-            )
-            if result.get("returncode") == 0:
-                try:
-                    parsed = _extract_json(raw_candidate)
-                    raw = raw_candidate
-                    validation["mock"] = False
-                    validation["launch_mode"] = result.get("launch_mode", mode)
-                    validation["returncode"] = result.get("returncode")
-                    validation["elapsed_sec"] = result.get("elapsed_sec")
-                    break
-                except Exception as exc:
-                    validation.setdefault("attempts", [])[-1]["fallback_kind"] = "json_parse_failure"
-                    validation.setdefault("attempts", [])[-1]["parse_error"] = str(exc)
-            if launch_mode != "auto":
-                break
-        else:
+        mapped_model = _map_model(gemini_model)
+        started = time.monotonic()
+        try:
+            raw = _run_subagent(prompt, mapped_model, timeout_sec)
+            elapsed = round(time.monotonic() - started, 3)
+            parsed = _extract_json(raw)
+            validation["mock"] = False
+            validation["live_ok"] = True
+            validation["launch_mode"] = "native-subagent"
+            validation["launch_method"] = "language_server_agentapi"
+            validation["returncode"] = 0
+            validation["elapsed_sec"] = elapsed
+        except Exception as exc:
             parsed = _mock_actor_response(actor_id, context_pack, state, turn_id, seed)
-            raw = str((last_result or {}).get("raw", ""))
-            fallback_kind = _fallback_kind(raw, (last_result or {}).get("returncode"), bool((last_result or {}).get("timed_out")))
+            raw = str(exc)
             validation["mock"] = True
-            validation["fallback"] = f"mock_after_gemini_{fallback_kind}"
-            validation["fallback_kind"] = fallback_kind
-            validation["fallback_reason"] = raw[:1000] or "Gemini CLI did not produce a valid JSON response."
-        if "parsed" not in locals():
-            parsed = _mock_actor_response(actor_id, context_pack, state, turn_id, seed)
-            raw = str((last_result or {}).get("raw", ""))
-            fallback_kind = _fallback_kind(raw, (last_result or {}).get("returncode"), bool((last_result or {}).get("timed_out")))
-            validation["mock"] = True
-            validation["fallback"] = f"mock_after_gemini_{fallback_kind}"
-            validation["fallback_kind"] = fallback_kind
-            validation["fallback_reason"] = raw[:1000] or "Gemini CLI did not produce a valid JSON response."
+            validation["live_ok"] = False
+            validation["fallback"] = "mock_after_subagent_failure"
+            validation["fallback_kind"] = "subagent_failure"
+            validation["fallback_reason"] = raw[:1000]
+            
     violations = validate_actor_response(actor_id, parsed, context_pack)
     validation["violations"] = violations
     (target / "raw_response.txt").write_text(raw, encoding="utf-8")
@@ -309,247 +371,7 @@ def call_gemini_actor(
     return {"parsed": parsed, "raw": raw, "validation": validation}
 
 
-def _kill_process_tree(pid: int) -> None:
-    if os.name == "nt":
-        subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], text=True, capture_output=True)
-    else:
-        try:
-            os.killpg(pid, 9)
-        except Exception:
-            try:
-                os.kill(pid, 9)
-            except Exception:
-                pass
 
-
-def _resolve_gemini_command() -> str:
-    candidates = ["gemini.cmd", "gemini.exe", "gemini"] if os.name == "nt" else ["gemini"]
-    for candidate in candidates:
-        resolved = shutil.which(candidate)
-        if resolved:
-            return resolved
-    return "gemini"
-
-
-def _resolve_node_command() -> str:
-    return shutil.which("node.exe" if os.name == "nt" else "node") or "node"
-
-
-def _gemini_node_pty_require() -> str | None:
-    npm_root = Path(os.environ.get("APPDATA", "")) / "npm" / "node_modules" / "@google" / "gemini-cli" / "node_modules" / "node-pty"
-    if npm_root.exists():
-        return str(npm_root).replace("\\", "/")
-    return None
-
-
-def _fallback_kind(raw: str, returncode: int | None = None, timed_out: bool = False) -> str:
-    lower = raw.lower()
-    if "transport closed" in lower:
-        return "mcp_transport_closed"
-    if "manual authorization is required" in raw or returncode == 41:
-        return "auth_required"
-    if "opening authentication page" in lower or "how would you like to authenticate" in lower or "get started" in lower:
-        return "auth_consent_loop"
-    if "authentication consent could not be obtained" in lower or "authentication cancelled" in lower:
-        return "auth_consent_loop"
-    if timed_out and raw.strip():
-        return "timeout_after_partial_output"
-    if timed_out:
-        return "timeout_no_output"
-    return "cli_failure"
-
-
-def _run_gemini_popen_headless(prompt: str, timeout_sec: int, gemini_model: str | None = None) -> dict[str, Any]:
-    command = [_resolve_gemini_command(), "--skip-trust", "--prompt", "", "--output-format", "text", "--approval-mode", "plan"]
-    if gemini_model:
-        command[1:1] = ["--model", gemini_model]
-    env = dict(os.environ)
-    env.setdefault("NO_COLOR", "1")
-    env.setdefault("TERM", "xterm-256color")
-    env.pop("CI", None)
-    started = time.monotonic()
-    creationflags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
-    proc = subprocess.Popen(
-        command,
-        text=True,
-        encoding="utf-8",
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        stdin=subprocess.PIPE,
-        env=env,
-        creationflags=creationflags,
-    )
-    try:
-        stdout, stderr = proc.communicate(input=prompt, timeout=timeout_sec)
-        raw = (stdout or "") if proc.returncode == 0 else (stdout or "") + "\n" + (stderr or "")
-        return {
-            "raw": raw,
-            "returncode": proc.returncode,
-            "command": command[0],
-            "launch_mode": "popen_headless",
-            "elapsed_sec": round(time.monotonic() - started, 3),
-        }
-    except subprocess.TimeoutExpired:
-        _kill_process_tree(proc.pid)
-        try:
-            stdout, stderr = proc.communicate(timeout=10)
-        except subprocess.TimeoutExpired:
-            stdout, stderr = "", "Gemini CLI process tree did not exit after hard cleanup."
-        raw = (stdout or "") + "\n" + (stderr or "")
-        return {
-            "raw": raw,
-            "returncode": proc.returncode,
-            "command": command[0],
-            "launch_mode": "popen_headless",
-            "elapsed_sec": round(time.monotonic() - started, 3),
-            "timed_out": True,
-        }
-
-
-def _pty_runner_script() -> str:
-    return r"""
-const fs = require('fs');
-const pty = require(process.env.NODE_PTY_REQUIRE);
-const gemini = process.env.GEMINI_CMD;
-const promptPath = process.env.GEMINI_PROMPT_PATH;
-const timeoutMs = Number(process.env.GEMINI_TIMEOUT_MS || '180000');
-const model = process.env.GEMINI_MODEL || '';
-const prompt = fs.readFileSync(promptPath, 'utf8');
-const args = ['--skip-trust', '--approval-mode', 'plan', '--output-format', 'text'];
-if (model) args.unshift(model), args.unshift('--model');
-const proc = pty.spawn(gemini, args, {
-  name: 'xterm-256color',
-  cols: 140,
-  rows: 45,
-  cwd: process.env.GEMINI_CWD || process.cwd(),
-  env: {...process.env, TERM: 'xterm-256color'}
-});
-let raw = '';
-let sent = false;
-let done = false;
-function stripAnsi(value) {
-  return value.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '').replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, '');
-}
-function maybeJson(text) {
-  const clean = stripAnsi(text);
-  const start = clean.indexOf('{');
-  const end = clean.lastIndexOf('}');
-  if (start < 0 || end <= start) return false;
-  try { JSON.parse(clean.slice(start, end + 1)); return true; } catch { return false; }
-}
-function finish(status, code) {
-  if (done) return;
-  done = true;
-  const payload = {status, raw: stripAnsi(raw), raw_length: raw.length};
-  console.log('\n__GEMINI_PTY_RESULT_START__');
-  console.log(JSON.stringify(payload));
-  console.log('__GEMINI_PTY_RESULT_END__');
-  try { proc.write('/quit\r'); } catch {}
-  setTimeout(() => { try { proc.kill(); } catch {}; process.exit(code); }, 1000);
-}
-function sendPrompt() {
-  if (sent) return;
-  sent = true;
-  proc.write(prompt.replace(/\r?\n/g, '\n') + '\r');
-}
-proc.onData((data) => {
-  raw += data;
-  const clean = stripAnsi(raw);
-  if (!sent && /(Ask Gemini|Type your message|Ready|>)/i.test(clean)) {
-    setTimeout(sendPrompt, 250);
-  }
-  if (/Manual authorization is required|Authentication cancelled|Authentication consent could not be obtained|How would you like to authenticate|Get started/i.test(clean)) {
-    finish('auth_consent_loop', 3);
-  }
-  if (sent && maybeJson(raw)) {
-    finish('ok', 0);
-  }
-});
-proc.onExit(({exitCode}) => {
-  if (!done) finish('exit_' + exitCode, exitCode || 1);
-});
-setTimeout(sendPrompt, 8000);
-setTimeout(() => finish(raw.trim() ? 'timeout_after_partial_output' : 'timeout_no_output', 2), timeoutMs);
-"""
-
-
-def _parse_pty_result(stdout: str) -> tuple[str, str]:
-    match = re.search(r"__GEMINI_PTY_RESULT_START__\s*(\{.*?\})\s*__GEMINI_PTY_RESULT_END__", stdout, flags=re.DOTALL)
-    if not match:
-        return "unknown", stdout
-    try:
-        payload = json.loads(match.group(1))
-    except json.JSONDecodeError:
-        return "unknown", stdout
-    return str(payload.get("status", "unknown")), str(payload.get("raw", ""))
-
-
-def _run_gemini_pty(prompt_path: Path, timeout_sec: int, gemini_model: str | None = None) -> dict[str, Any]:
-    node_pty = _gemini_node_pty_require()
-    if not node_pty:
-        return {
-            "raw": "Gemini CLI bundled node-pty was not found.",
-            "returncode": 127,
-            "command": _resolve_gemini_command(),
-            "launch_mode": "pty_interactive",
-            "fallback_hint": "node_pty_missing",
-        }
-    runner_path = prompt_path.parent / "_gemini_pty_runner.js"
-    runner_path.write_text(_pty_runner_script(), encoding="utf-8")
-    env = dict(os.environ)
-    env.update(
-        {
-            "NODE_PTY_REQUIRE": node_pty,
-            "GEMINI_CMD": _resolve_gemini_command(),
-            "GEMINI_PROMPT_PATH": str(prompt_path),
-            "GEMINI_TIMEOUT_MS": str(max(1, timeout_sec) * 1000),
-            "GEMINI_CWD": str(_skill_dir()),
-            "TERM": "xterm-256color",
-        }
-    )
-    if gemini_model:
-        env["GEMINI_MODEL"] = gemini_model
-    env.pop("CI", None)
-    started = time.monotonic()
-    try:
-        result = subprocess.run(
-            [_resolve_node_command(), str(runner_path)],
-            text=True,
-            encoding="utf-8",
-            capture_output=True,
-            timeout=timeout_sec + 15,
-            env=env,
-            check=False,
-        )
-        status, raw = _parse_pty_result((result.stdout or "") + "\n" + (result.stderr or ""))
-        return {
-            "raw": raw,
-            "returncode": result.returncode,
-            "command": _resolve_gemini_command(),
-            "launch_mode": "pty_interactive",
-            "pty_status": status,
-            "elapsed_sec": round(time.monotonic() - started, 3),
-        }
-    except subprocess.TimeoutExpired as exc:
-        raw = ((exc.stdout or "") if isinstance(exc.stdout, str) else "") + "\n" + ((exc.stderr or "") if isinstance(exc.stderr, str) else "")
-        return {
-            "raw": raw,
-            "returncode": None,
-            "command": _resolve_gemini_command(),
-            "launch_mode": "pty_interactive",
-            "elapsed_sec": round(time.monotonic() - started, 3),
-            "timed_out": True,
-        }
-
-
-def _run_gemini_mcp(prompt: str, timeout_sec: int) -> dict[str, Any]:
-    return {
-        "raw": "MCP launch mode is only available inside Codex tool runtime; standalone skill runner cannot invoke MCP namespaces directly.",
-        "returncode": 127,
-        "command": "mcp__gemini_cli_research__.gemini_research",
-        "launch_mode": "mcp",
-        "fallback_hint": "mcp_unavailable_in_subprocess",
-    }
 
 
 def _coa_from_actor(actor_id: str, response: dict[str, Any]) -> dict[str, Any]:

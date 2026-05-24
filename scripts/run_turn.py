@@ -31,7 +31,7 @@ def main() -> None:
     parser.add_argument("--actor-execution", choices=["v4_abstract", "v45_concrete"], default="v45_concrete")
     parser.add_argument("--actor-scope", choices=["core", "expanded", "all"], default="core")
     parser.add_argument("--gemini-timeout", type=int, default=180)
-    parser.add_argument("--gemini-launch-mode", choices=["auto", "popen_headless", "pty_interactive", "mcp"], default="auto")
+    parser.add_argument("--gemini-launch-mode", choices=["auto", "terminal_bridge", "popen_headless", "pty_interactive", "mcp"], default="auto")
     parser.add_argument("--gemini-model", default=None)
     parser.add_argument("--knowledge-db", default=None, help="V4 knowledge DB path. Defaults to data/wargame_knowledge.sqlite.")
     parser.add_argument("--out", required=True)

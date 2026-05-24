@@ -61,8 +61,8 @@ def migrate(db_path: str | Path) -> None:
     if rebuild:
         try:
             target.unlink()
-        except Exception:
-            pass
+        except Exception as e:
+            raise RuntimeError(f"Failed to unlink database file {target} during migration: {e}") from e
 
     with connect(target) as conn:
         conn.execute("PRAGMA foreign_keys=ON")
@@ -419,7 +419,8 @@ def migrate(db_path: str | Path) -> None:
                 burn_rate_standby REAL NOT NULL,
                 burn_rate_active REAL NOT NULL,
                 resupply_rate_turn INTEGER NOT NULL,
-                PRIMARY KEY (actor_id, platform_family)
+                PRIMARY KEY (actor_id, platform_family),
+                FOREIGN KEY (actor_id) REFERENCES world_actors(actor_id)
             )
             """
         )
@@ -687,7 +688,7 @@ def _seed_world_tables(
 
     # Seed inventories and deployments
     cursor = conn.cursor()
-    cursor.execute("SELECT DISTINCT actor_id, family, initial_ammo_stock FROM military_platforms")
+    cursor.execute("SELECT actor_id, family, MAX(initial_ammo_stock) FROM military_platforms GROUP BY actor_id, family")
     platform_families = cursor.fetchall()
     for act_id, family, initial_ammo_stock in platform_families:
         stock = initial_ammo_stock if initial_ammo_stock is not None else 100

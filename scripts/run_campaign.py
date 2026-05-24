@@ -21,6 +21,7 @@ from common import (
     merge_initial_state,
     render_analyst_report_markdown,
     render_exec_report_markdown,
+    render_news_report_markdown,
     render_event_timeline,
     render_terms_and_parameters,
     render_turn_timeline,
@@ -121,7 +122,7 @@ def main() -> None:
     parser.add_argument("--actor-execution", choices=["v4_abstract", "v45_concrete"], default="v45_concrete", help="Gemini actor execution topology")
     parser.add_argument("--actor-scope", choices=["core", "expanded", "all"], default="core", help="Concrete actor scope for V4.5")
     parser.add_argument("--gemini-timeout", type=int, default=180, help="Seconds to wait for each Gemini CLI actor call before fallback.")
-    parser.add_argument("--gemini-launch-mode", choices=["auto", "popen_headless", "pty_interactive", "mcp"], default="auto", help="Gemini CLI launch strategy for live actor calls.")
+    parser.add_argument("--gemini-launch-mode", choices=["auto", "terminal_bridge", "popen_headless", "pty_interactive", "mcp"], default="auto", help="Gemini CLI launch strategy for live actor calls.")
     parser.add_argument("--gemini-model", default=None, help="Optional Gemini model override, for example gemini-2.5-flash for smoke tests.")
     parser.add_argument("--knowledge-db", default=None, help="V4 knowledge DB path. Defaults to data/wargame_knowledge.sqlite.")
     args = parser.parse_args()
@@ -285,6 +286,14 @@ def main() -> None:
         turn_results=turn_results,
         story_cards_by_turn=story_cards_by_turn,
     )
+    report_news = render_news_report_markdown(
+        mission=mission,
+        final_state=state,
+        indicators=last_indicators,
+        key_judgments=key_judgments,
+        ach_detail=ach_detailed,
+        turn_results=turn_results,
+    )
     terms_doc = render_terms_and_parameters(mission, scenario, actor_config)
     timeline_md = render_turn_timeline(turn_results)
     event_timeline_md = render_event_timeline(turn_results)
@@ -312,6 +321,7 @@ def main() -> None:
 
     (out_dir / "report_exec.md").write_text(report_exec, encoding="utf-8")
     (out_dir / "report_analyst.md").write_text(report_analyst, encoding="utf-8")
+    (out_dir / "report_news.md").write_text(report_news, encoding="utf-8")
     (out_dir / "report.md").write_text(report_exec, encoding="utf-8")
     (out_dir / "terms_and_parameters.md").write_text(terms_doc, encoding="utf-8")
     (out_dir / "turn_timeline.md").write_text(timeline_md, encoding="utf-8")
@@ -347,6 +357,7 @@ def main() -> None:
         "report_md": str((out_dir / "report.md").resolve()),
         "report_exec_md": str((out_dir / "report_exec.md").resolve()),
         "report_analyst_md": str((out_dir / "report_analyst.md").resolve()),
+        "report_news_md": str((out_dir / "report_news.md").resolve()),
         "terms_and_parameters_md": str((out_dir / "terms_and_parameters.md").resolve()),
         "turn_timeline_md": str((out_dir / "turn_timeline.md").resolve()),
         "event_timeline_md": str((out_dir / "event_timeline.md").resolve()),

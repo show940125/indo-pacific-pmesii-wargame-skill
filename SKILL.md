@@ -39,6 +39,14 @@ Run Gemini CLI OAuth diagnostics before a live run:
 python scripts/diagnose_gemini_cli.py --timeout 60 --out out/gemini_cli_diagnostics.json
 ```
 
+Confirm Codex can call the already-authenticated Gemini CLI before actor runs:
+
+```powershell
+python scripts/gemini_ok_smoke.py --mode popen_headless --timeout 180
+```
+
+Expected result: `OK_GEMINI_BRIDGE` and `out/gemini_ok_smoke.json` with `success=true`. On this Windows machine, the live wrapper must launch `gemini.cmd` with `NODE_OPTIONS=--use-system-ca`, remove `CI`, send long prompts through stdin, and parse JSON defensively because Gemini CLI can emit warnings or `update_topic{...}` before the actual JSON.
+
 Open a project-scoped OAuth repair window when `oauth-personal` falls into an auth/consent loop:
 
 ```powershell

@@ -2851,6 +2851,206 @@ def render_analyst_report_markdown(
     return _annotate_terms(content, annotation_profile)
 
 
+def _generate_vivid_narration(location: str, event_type: str, actor: str, target: str) -> str:
+    actor_label = "美軍與盟國聯軍（Blue）" if actor == "Blue" else "伊朗革命衛隊與其代理人民兵（Red）" if actor == "Red" else "中立協處人員（White）"
+    target_label = "美軍與盟國聯軍（Blue）" if target == "Blue" else "伊朗革命衛隊與其代理人民兵（Red）" if target == "Red" else "中立協置與區域各方"
+
+    if location == "紅海":
+        if actor == "Blue":
+            return "美軍『艾森豪號』航母戰鬥群與多國聯合防空驅逐艦編隊加強了紅海南部海域的空中巡邏，密切監視葉門沿岸的雷達活動，防範可能的無人機與反艦飛彈襲擊。"
+        elif actor == "Red":
+            return "伊朗革命衛隊聖城軍與葉門胡希武裝（Red）的飛彈發射分隊在紅海沿岸地區實施了隱蔽的戰術重組，雷達開機鎖定盟國巡邏艦艇，使紅海航道安全威脅急劇上升。"
+        else:
+            return "國際海事去衝突中心試圖協調交戰區臨時安全走廊，警告各方切勿對通過海域的民用油輪實施武力干擾。"
+            
+    elif location == "荷姆茲海峽":
+        if actor == "Blue":
+            return "美國海軍第五艦隊的巡防艦群與直升機編隊在荷姆茲海峽咽喉部位加強了警戒機動，為通過國際航道的商船提供戰術伴航，保障航運生命線暢通。"
+        elif actor == "Red":
+            return "伊朗革命衛隊海軍（IRGCN）出動了十餘艘裝配重機槍與火箭筒的快速武裝巡邏艇，在海峽中部對正在通航的西方商船實施合圍與警告性廣播，迫使其調整航道。"
+        else:
+            return "區域搜救與海事安全協調官向各國商船發布警示通告，要求在通過荷姆茲海峽時保持高度警惕並進行無線電安全通報。"
+
+    elif location == "黎凡特走廊":
+        if actor == "Blue":
+            return "美軍第26海軍陸戰隊遠征隊（MEU）與庫德族武裝在庫德控制區的東部邊境部署了前沿戰術雷達與愛國者防空飛彈系統，以反制潛在的近程火箭彈突襲。"
+        elif actor == "Red":
+            return "敘利亞境內親伊朗的什葉派武裝民兵，在敘東部代爾祖爾附近的秘密據點發射了多枚火箭彈與迫擊砲，向美軍的前沿防禦據點實施了騷擾性的模擬交火與試探。"
+        else:
+            return "聯合國駐敘利亞衝突觀察小組通過去衝突線路向美伊雙方發出克制警告，嚴防邊界地帶因誤判導致全面交火。"
+
+    elif location == "伊拉克-敘利亞邊境":
+        if actor == "Blue":
+            return "美軍駐伊拉克阿薩德空軍基地的電子戰分隊與死神（Reaper）無人機部隊，加強了對跨境非法武裝補給線的24小時監控，並對可疑目標進行了電磁干擾與雷達鎖定。"
+        elif actor == "Red":
+            return "活躍於邊境地帶的『真主黨旅』（Kata'ib Hezbollah）使用多架攜帶炸藥的自殺式武裝無人機，低空襲擊了美軍阿爾坦夫（Al-Tanf）軍事基地的外圍警戒哨所。"
+        else:
+            return "伊拉克邊防警察與國防軍在邊界隘口設立臨時檢查站，對過往可疑車輛進行盤查，力圖遏制非正規民兵的跨境武力機動。"
+
+    elif location == "波斯灣":
+        if actor == "Blue":
+            return "美軍第五艦隊的多用途反潛機（P-8A）在灣區北部偵測到伊朗常規動力潛艇的異常航行，隨即引導盟軍神盾驅逐艦投下主動聲納與警告性信標，對其進行水下警告壓制。"
+        elif actor == "Red":
+            return "伊朗海軍在法爾斯島周邊海域集結了多型護衛艦與飛彈快艇，實施了多波次近程反艦火箭的防禦演習，向進入海灣地區的西方驅逐艦群發出實體威懾警告。"
+        else:
+            return "波斯灣航運合作機構通告所有民用油輪繞開演習禁航區，避免在海上電子干擾下發生航道偏移或誤擊事故。"
+
+    elif location == "金融與能源交易節點":
+        if actor == "Blue":
+            return "美國財政部海外資產控制辦公室（OFAC）聯合歐盟金融監管機構，查封並凍結了數個在杜拜與土耳其運作的地下信託帳戶，打擊涉嫌為革命衛隊洗錢的空殼貿易公司。"
+        elif actor == "Red":
+            return "伊朗石油部與非官方跨國買家代表達成密約，繞過環球銀行金融電信協會（SWIFT）結算系統，改用非對稱加密貨幣與非正式貨物置換模式，以維護其石油命脈。"
+        else:
+            return "國際貨幣基金組織（IMF）及瑞士仲介機構指出，升級的制裁行動正在衝擊中東中游能源交易市場，促使區域交易商提高風險保費與融資成本。"
+
+    elif location == "跨平台資訊域":
+        if actor == "Blue":
+            return "美軍網路司令部（CYBERCOM）與主要社交平台反垃圾網絡團隊發起聯合清除行動，凍結了多個大範圍散播偽造美軍基地遭襲傷亡慘重影片的伊朗水軍帳號。"
+        elif actor == "Red":
+            return "與伊朗安全部門關聯的駭客團體『迷人小貓』（Charming Kitten）發動認知與宣傳戰，在網絡上廣泛傳播AI合成的美軍航母中彈起火圖像，意圖干擾聯軍決策體系。"
+        else:
+            return "第三方資訊核實機構『Bellingcat』與無國界記者組織聯合呼籲，當前資訊域內充斥大量真假參半的戰況視頻，大眾應審慎求證，避免被認知戰輿論所牽制。"
+
+    elif location == "第三方外交渠道":
+        if actor == "White":
+            return "瑞士駐德黑蘭大使館與卡達外交特使展開緊急穿梭外交，將寫有『防止非意圖性戰術摩擦升級』的備忘錄提交給美伊雙方決策層，力促保持戰略溝通。"
+        elif actor == "Blue":
+            return "美國國務院透過阿曼中介管道向德黑蘭傳遞嚴正照會，強調若美軍部隊遭遇任何人身傷亡，將招致直接的報復性打擊，但美方仍尋求外交去衝突化。"
+        else:
+            return "伊朗外交部發言人召開緊急記者會，重申德黑蘭不尋求區域戰爭，但若其主權與伊斯蘭革命衛隊資產遭受侵犯，將給予美方『毀滅性的對等還擊』。"
+
+    return f"在前線對峙點，{actor_label} 針對 {target_label} 發動了包含 {event_type} 性質的戰術對抗操作，雙方圍繞該區域的戰略主導權展開新一輪博弈。"
+
+
+def _generate_loss_description(loss: str) -> str:
+    loss_map = {
+        "無損耗": "現場未造成任何人員傷亡或硬體設備毀損，主要為非接觸性的戰術威懾與電磁干擾。",
+        "低損耗帶": "前線回報僅有外圍工事及非核心設施輕微受損，無人員殉職或核心戰備損壞，雙方整體戰力保持完好。",
+        "中損耗帶": "衝突引發局部火災與設施受損，據報造成數名戰鬥人員受傷，部分通信天線或運輸車輛被毀，但防線並未被實質擊穿。",
+        "高損耗帶": "現場引發劇烈爆炸與大火，造成多名官兵重傷或殉職，多項核心防空雷達、指揮中心或油庫損毀，戰損情況極其慘重。"
+    }
+    return loss_map.get(loss, "戰損傷亡與硬體損壞細節尚在現場核對中。")
+
+
+def render_news_report_markdown(
+    mission: dict[str, Any],
+    final_state: dict[str, float],
+    indicators: dict[str, Any],
+    key_judgments: list[dict[str, Any]],
+    ach_detail: dict[str, Any],
+    turn_results: list[Any] | None = None,
+) -> str:
+    annotation_profile = mission.get("term_annotation", "inline_glossary")
+    resolved_turns = turn_results or ach_detail.get("turn_results", [])
+    
+    lines = [
+        f"# BBC 深度專題：{mission.get('topic', '美伊多角聯盟衝突')}特別追蹤報導",
+        "",
+        "**BBC 國際新聞部 特派記者 德黑蘭/華盛頓 連線報導**",
+        "",
+        "---",
+        "",
+        "## 讀前指南：如何解讀這場「鋼索博弈」？",
+        "在複雜的區域衝突中，軍事分析家常用 **PMESII 六維指標** 來評估局勢的「體溫」。以下是六個指標的白話解讀，幫助普通讀者快速掌握其背後意義：",
+        "",
+        "- **政治 (P)**：外交談判管道是否暢通？（分數越高代表互信越低，外交陷入僵局）",
+        "- **軍事 (M)**：軍事衝突與升級的劇烈程度。（分數越高代表交火越頻繁、武力威脅越強）",
+        "- **經濟 (E)**：航運受阻、保費與制裁對日常經貿的壓力。（分數越高代表民生與商業成本越沉重）",
+        "- **社會 (S)**：內部社會動盪、人民抗議與輿論壓力的指數。（分數越高代表社會越不穩定）",
+        "- **資訊 (I)**：假訊息、灰色地帶認知作戰的密度。（分數越高代表資訊越混亂，越容易造成戰略誤判）",
+        "- **基礎設施 (Infra)**：港口運補、能源節點與核電廠的受損程度。（分數越高代表關鍵設施越容易中斷）",
+        "",
+        "---",
+        "",
+        "## 局勢總覽：高壓之下的「受控摩擦」",
+        f"經過連續三週的博弈，最新數據顯示**軍事 (M) 壓力已高達 {final_state.get('M', 50.0):.2f}**，**資訊 (I) 戰指數也爬升至 {final_state.get('I', 50.0):.2f}**。這代表雙方前線在武力對峙與假訊息攻防上都非常激烈。然而，政治 (P: {final_state.get('P', 50.0):.2f})，經濟 (E: {final_state.get('E', 50.0):.2f}) 等指標仍處於中性水平，說明美伊與多方聯盟在採取強硬反制的同時，依然精準拿捏分寸，極力避免衝突滑向全面戰爭的深淵。",
+        "",
+    ]
+
+    if resolved_turns:
+        lines.append("## 連續重大事件追蹤")
+        lines.append("")
+        for result in resolved_turns:
+            turn_id = int(_read_turn_value(result, "turn_id") or 0)
+            adjudication = _read_turn_value(result, "adjudication") or {}
+            state_before = _read_turn_value(result, "state_before") or {}
+            state_after = _read_turn_value(result, "state_after") or {}
+            event_ledger = _read_turn_value(result, "event_ledger") or []
+            
+            lines.append(f"### 【第 {turn_id} 週：重大事件與前線脈絡】")
+            
+            top_events = sorted(
+                event_ledger,
+                key=lambda row: float(row.get("probability", 0.5)) * float(row.get("confidence", 0.5)),
+                reverse=True,
+            )[:3]
+            
+            lines.append(f"本週核心局勢主要由**{adjudication.get('decision', '灰色地帶競逐')}**所主導。在前線具體發生的關鍵事件包括：")
+            lines.append("")
+            for row in top_events:
+                actor = row.get("actor", "相關行為者")
+                target = row.get("target", "目標")
+                location = row.get("location", "衝突區域")
+                detail = row.get("action_detail", "具體行動")
+                outcome = row.get("estimated_outcome", "預期影響")
+                
+                # 轉譯機率與損耗帶
+                prob_val = row.get("probability", 0.5)
+                try:
+                    prob_pct = f"{float(prob_val) * 100:.0f}%"
+                except Exception:
+                    prob_pct = "50%"
+                loss = row.get("casualty_or_loss_band", "無損耗")
+                
+                # 取得行為者與目標的白話中文稱呼
+                actor_name = "美軍與盟國聯軍 (Blue)" if actor == "Blue" else "伊朗革命衛隊及代理人 (Red)" if actor == "Red" else "中立第三方 (White)"
+                if target == "Blue":
+                    target_name = "美軍與盟國聯軍 (Blue)"
+                elif target == "Red":
+                    target_name = "伊朗革命衛隊及代理人 (Red)"
+                elif target == "Blue/Red":
+                    target_name = "美伊雙方"
+                elif target == "Regional Nodes":
+                    target_name = "區域樞紐節點與民用船隻"
+                else:
+                    target_name = f"{target} (對手方)"
+                
+                # 生成具體軍事脈絡與戰損描述
+                vivid_narration = _generate_vivid_narration(location, row.get("event_type", ""), actor, target)
+                loss_desc = _generate_loss_description(loss)
+                
+                lines.append(f"- **前線特報 ({row.get('event_id', 'EV')})【{location}戰線】**：")
+                lines.append(f"  在戰略要地 *{location}*，**{actor_name}** 針對 **{target_name}** 採取了 *{detail}* 行動。")
+                lines.append(f"  **BBC 戰略局勢觀察**：{vivid_narration}")
+                lines.append(f"  **戰場影響評估**：該次行動造成了 *{outcome}*。經軍事情報智庫 Graves-MiddleEast 估算，此事件演變為全面軍事升級的概率達 **{prob_pct}**。目前前線傳回的戰損評估為 **{loss}**（{loss_desc}）。")
+                lines.append("")
+            
+            lines.append("")
+            lines.append(f"**BBC 局勢分析**：本週的事件直接拉動了指標變化，軍事 (M) 自 {state_before.get('M', 50.0):.2f} 變動至 {state_after.get('M', 50.0):.2f}，資訊 (I) 自 {state_before.get('I', 50.0):.2f} 變動至 {state_after.get('I', 50.0):.2f}。這顯示雙方的武力對峙與灰色宣傳活動正呈現穩步上揚的走勢，防範誤判成為當前各方的最優先工作。")
+            lines.append("")
+            lines.append("---")
+            lines.append("")
+
+    lines.extend([
+        "## BBC 獨家觀察：未來的衝突路徑與翻盤關鍵",
+        "在目前的衝突脈絡下，分析家指出兩個主要的演變可能：",
+        "",
+        f"1. **最可能路徑**：**{key_judgments[0]['claim'] if key_judgments else '可控競逐，避免全面交火'}**。雙方目前仍具備控制升級節奏的能力，極力維持有限度的衝突，但不排除有突發事故跨越紅線的可能。",
+        f"2. **次可能路徑**：**{key_judgments[1]['claim'] if len(key_judgments) > 1 else '灰色空間持續擴張'}**。如果非對稱襲擊、制裁與假訊息操作在多個戰區同步升級，次可能路徑將會快速升格為主導路徑。",
+        "",
+        "### 翻盤與觀察哨：什麼指標可能引發局勢失控？",
+        "根據智庫 Graves-MiddleEast 的警告，以下三個臨界點（門檻）是我們接下來一週需要重點盯防的防禦哨位：",
+        f"- **軍事 (M) 警戒線**：一旦突破 **75**（目前 {final_state.get('M', 50.0):.2f}），代表交火頻率已經失控，隨時可能爆發全面軍事衝突。",
+        f"- **資訊 (I) 警戒線**：一旦突破 **75**（目前 {final_state.get('I', 50.0):.2f}），代表認知戰與資訊污染已破壞基本的外交溝基礎，誤判機率大幅度上升。",
+        f"- **基礎設施 (Infra) 警戒線**：一旦突破 **65**（目前 {final_state.get('Infra', 50.0):.2f}），代表港口運補或核電等設施遭受實體破壞，將直接衝擊區域生存韌性與經濟命脈。",
+        "",
+        "**BBC 特派記者** 將持續在現場為您鎖定這場中東波斯灣與紅海的棋局變化。",
+    ])
+    
+    content = "\n".join(lines)
+    return _annotate_terms(content, annotation_profile)
+
+
 def render_report_markdown(
     mission: dict[str, Any],
     final_state: dict[str, float],
