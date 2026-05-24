@@ -454,7 +454,7 @@ class V2UnitTests(unittest.TestCase):
                 collection_plan={"sources": [{"name": "unit_source", "tier": "public", "independence_group": "unit"}]},
                 references_dir=SKILL_DIR / "references",
             )
-            self.assertEqual(meta["schema_version"], 4)
+            self.assertEqual(meta["schema_version"], 5)
             self.assertGreaterEqual(meta["tables"]["actors"], 4)
             self.assertGreaterEqual(meta["tables"]["world_actors"], 20)
             self.assertGreaterEqual(meta["tables"]["military_platforms"], 10)
@@ -473,7 +473,7 @@ class V2UnitTests(unittest.TestCase):
             self.assertTrue(pack["pmesii_indicators"])
             self.assertTrue(pack["capabilities"])
             self.assertTrue(pack["constraints"])
-            self.assertEqual(manifest(db_path)["schema_version"], 4)
+            self.assertEqual(manifest(db_path)["schema_version"], 5)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
@@ -636,6 +636,79 @@ class V2UnitTests(unittest.TestCase):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_sqlite_v5_schema(self):
+        import sqlite3
+        import tempfile
+        import shutil
+        from pathlib import Path
+        
+        tmp = Path(tempfile.mkdtemp(prefix="pmesii_v5_schema_test_"))
+        try:
+            db_path = tmp / "wargame_knowledge.sqlite"
+            meta = seed_database(
+                db_path=db_path,
+                mission=self.mission,
+                scenario=self.scenario,
+                actor_config={"blue_priorities": {"M": 0.9}, "red_priorities": {"I": 0.9}},
+                collection_plan={"sources": [{"name": "unit_source", "tier": "public", "independence_group": "unit"}]},
+                references_dir=SKILL_DIR / "references",
+            )
+            conn = sqlite3.connect(db_path)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            
+            # Check new tables exist
+            tables = ["geographic_theaters", "theater_connections", "actor_deployments", "platform_inventories"]
+            for table in tables:
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,))
+                self.assertIsNotNone(cursor.fetchone(), f"Table {table} should exist in V5")
+            
+            # Check new columns exist in military_platforms and contain correct seeded values.
+            cursor.execute("PRAGMA table_info(military_platforms)")
+            columns = [row[1] for row in cursor.fetchall()]
+            self.assertIn("initial_ammo_stock", columns, "initial_ammo_stock should exist in military_platforms")
+            
+            cursor.execute("SELECT initial_ammo_stock FROM military_platforms LIMIT 1")
+            row = cursor.fetchone()
+            self.assertIsNotNone(row, "military_platforms should contain seeded rows")
+            self.assertEqual(row[0], 1000, "initial_ammo_stock should default to 1000")
+            
+            # Check new columns exist in weapon_interactions
+            cursor.execute("PRAGMA table_info(weapon_interactions)")
+            col_names = [row[1] for row in cursor.fetchall()]
+            for col in ["p_success_min", "p_success_max", "ammo_consume_attacker", "ammo_consume_defender"]:
+                self.assertIn(col, col_names, f"{col} should exist in weapon_interactions")
+                
+            # Verify seeded values in weapon_interactions
+            cursor.execute("SELECT p_success_min, p_success_max, ammo_consume_attacker, ammo_consume_defender FROM weapon_interactions LIMIT 1")
+            row = cursor.fetchone()
+            self.assertIsNotNone(row, "weapon_interactions should contain seeded rows")
+            self.assertGreaterEqual(row[0], 0.0)
+            self.assertLessEqual(row[1], 1.0)
+            self.assertGreaterEqual(row[2], 1)
+            self.assertGreaterEqual(row[3], 1)
+            
+            # Verify that actor_deployments and platform_inventories are seeded
+            cursor.execute("SELECT COUNT(*) FROM actor_deployments")
+            self.assertGreater(cursor.fetchone()[0], 0, "actor_deployments should contain seeded rows")
+            
+            cursor.execute("SELECT COUNT(*) FROM platform_inventories")
+            self.assertGreater(cursor.fetchone()[0], 0, "platform_inventories should contain seeded rows")
+            
+            # Verify a specific platform_inventories entry
+            cursor.execute("SELECT stock_current, stock_max, burn_rate_standby, burn_rate_active, resupply_rate_turn FROM platform_inventories LIMIT 1")
+            row = cursor.fetchone()
+            self.assertEqual(row[0], 1000, "stock_current should match platform initial_ammo_stock")
+            self.assertEqual(row[1], 1000, "stock_max should match platform initial_ammo_stock")
+            self.assertEqual(row[2], 0.05, "burn_rate_standby should be 0.05")
+            self.assertEqual(row[3], 2.5, "burn_rate_active should be 2.5")
+            self.assertEqual(row[4], 4, "resupply_rate_turn should be 4")
+            
+            conn.close()
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
 
 if __name__ == "__main__":
+
     unittest.main()

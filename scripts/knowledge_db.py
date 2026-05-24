@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 DIMENSIONS = ["P", "M", "E", "S", "I", "Infra"]
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 def now_iso() -> str:
@@ -46,6 +46,24 @@ def connect(db_path: str | Path) -> sqlite3.Connection:
 def migrate(db_path: str | Path) -> None:
     target = Path(db_path)
     target.parent.mkdir(parents=True, exist_ok=True)
+    rebuild = False
+    if target.exists():
+        try:
+            conn = sqlite3.connect(target)
+            cursor = conn.cursor()
+            cursor.execute("SELECT value FROM metadata WHERE key='schema_version'")
+            row = cursor.fetchone()
+            if row and int(row[0]) < SCHEMA_VERSION:
+                rebuild = True
+            conn.close()
+        except Exception:
+            rebuild = True
+    if rebuild:
+        try:
+            target.unlink()
+        except Exception:
+            pass
+
     with connect(target) as conn:
         conn.execute("PRAGMA foreign_keys=ON")
         conn.execute("CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL)")
@@ -218,7 +236,8 @@ def migrate(db_path: str | Path) -> None:
               range_effect_class TEXT NOT NULL,
               role TEXT NOT NULL,
               source_id TEXT NOT NULL,
-              confidence REAL NOT NULL
+              confidence REAL NOT NULL,
+              initial_ammo_stock INTEGER
             )
             """
         )
@@ -242,7 +261,11 @@ def migrate(db_path: str | Path) -> None:
               defender_family TEXT NOT NULL,
               relationship TEXT NOT NULL,
               effect TEXT NOT NULL,
-              limits TEXT NOT NULL
+              limits TEXT NOT NULL,
+              p_success_min REAL,
+              p_success_max REAL,
+              ammo_consume_attacker INTEGER,
+              ammo_consume_defender INTEGER
             )
             """
         )
@@ -341,6 +364,62 @@ def migrate(db_path: str | Path) -> None:
               expected_actor_ids_json TEXT NOT NULL,
               expected_checks_json TEXT NOT NULL,
               status TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS geographic_theaters (
+                theater_id TEXT PRIMARY KEY,
+                display_name TEXT NOT NULL,
+                domain_type TEXT NOT NULL,
+                logistics_capacity INTEGER NOT NULL,
+                description TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS theater_connections (
+                from_theater TEXT NOT NULL,
+                to_theater TEXT NOT NULL,
+                transit_turns_sea INTEGER NOT NULL,
+                transit_turns_air INTEGER NOT NULL,
+                political_access_rule TEXT,
+                PRIMARY KEY (from_theater, to_theater),
+                FOREIGN KEY (from_theater) REFERENCES geographic_theaters(theater_id),
+                FOREIGN KEY (to_theater) REFERENCES geographic_theaters(theater_id)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS actor_deployments (
+                deployment_id TEXT PRIMARY KEY,
+                actor_id TEXT NOT NULL,
+                platform_id TEXT NOT NULL,
+                theater_id TEXT NOT NULL,
+                quantity_deployed INTEGER NOT NULL,
+                current_status TEXT NOT NULL,
+                destination_theater TEXT,
+                remaining_transit_turns INTEGER,
+                FOREIGN KEY (actor_id) REFERENCES world_actors(actor_id),
+                FOREIGN KEY (platform_id) REFERENCES military_platforms(platform_id),
+                FOREIGN KEY (theater_id) REFERENCES geographic_theaters(theater_id)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS platform_inventories (
+                actor_id TEXT NOT NULL,
+                platform_family TEXT NOT NULL,
+                stock_current INTEGER NOT NULL,
+                stock_max INTEGER NOT NULL,
+                burn_rate_standby REAL NOT NULL,
+                burn_rate_active REAL NOT NULL,
+                resupply_rate_turn INTEGER NOT NULL,
+                PRIMARY KEY (actor_id, platform_family)
             )
             """
         )
@@ -466,15 +545,31 @@ def _seed_world_tables(
 
     for row in military_seed.get("weapon_interactions", []):
         conn.execute(
-            "INSERT OR REPLACE INTO weapon_interactions(interaction_id,attacker_family,defender_family,relationship,effect,limits) VALUES(?,?,?,?,?,?)",
-            (row["interaction_id"], row["attacker_family"], row["defender_family"], row["relationship"], row["effect"], row["limits"]),
+            """
+            INSERT OR REPLACE INTO weapon_interactions(
+                interaction_id,attacker_family,defender_family,relationship,effect,limits,
+                p_success_min,p_success_max,ammo_consume_attacker,ammo_consume_defender
+            ) VALUES(?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                row["interaction_id"],
+                row["attacker_family"],
+                row["defender_family"],
+                row["relationship"],
+                row["effect"],
+                row["limits"],
+                row.get("p_success_min", 0.1),
+                row.get("p_success_max", 0.9),
+                row.get("ammo_consume_attacker", 1),
+                row.get("ammo_consume_defender", 1)
+            ),
         )
     for row in military_seed.get("platforms", []):
         actor_id = str(row["actor_id"]).upper()
         conn.execute(
             """
-            INSERT OR REPLACE INTO military_platforms(platform_id,actor_id,family,model,domain,quantity_min,quantity_max,readiness_band,range_effect_class,role,source_id,confidence)
-            VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+            INSERT OR REPLACE INTO military_platforms(platform_id,actor_id,family,model,domain,quantity_min,quantity_max,readiness_band,range_effect_class,role,source_id,confidence,initial_ammo_stock)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 row["platform_id"],
@@ -489,6 +584,7 @@ def _seed_world_tables(
                 row["role"],
                 row["source_id"],
                 float(row["confidence"]),
+                row.get("initial_ammo_stock", 1000)
             ),
         )
         cap_id = f"CAP_{row['platform_id']}"
@@ -551,6 +647,88 @@ def _seed_world_tables(
         conn.execute(
             "INSERT OR REPLACE INTO benchmark_cases(case_id,title,expected_actor_ids_json,expected_checks_json,status) VALUES(?,?,?,?,?)",
             (case_id, title, _json(actors), _json(checks), "seeded"),
+        )
+
+    # Seed default theaters
+    theaters = [
+        ("red_sea", "Red Sea", "maritime", 100, "Critical maritime transit corridor and chokepoint near Yemen."),
+        ("strait_of_hormuz", "Strait of Hormuz", "maritime", 150, "Vital chokepoint for global oil transit between Gulf and Arabian Sea."),
+        ("levant_corridor", "Levant Corridor", "land", 80, "Land corridor connecting Iraq, Syria, Lebanon, and Israel."),
+        ("persian_gulf", "Persian Gulf", "maritime", 120, "Gulf waters surrounding Iran, Iraq, and GCC states."),
+    ]
+    for theater_id, name, domain, cap, desc in theaters:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO geographic_theaters(theater_id, display_name, domain_type, logistics_capacity, description)
+            VALUES(?,?,?,?,?)
+            """,
+            (theater_id, name, domain, cap, desc),
+        )
+
+    # Seed default theater connections
+    connections = [
+        ("red_sea", "strait_of_hormuz", 2, 1, "requires transit clearance"),
+        ("strait_of_hormuz", "red_sea", 2, 1, "requires transit clearance"),
+        ("red_sea", "levant_corridor", 3, 1, "open transit"),
+        ("levant_corridor", "red_sea", 3, 1, "open transit"),
+        ("strait_of_hormuz", "levant_corridor", 4, 1, "restricted access"),
+        ("levant_corridor", "strait_of_hormuz", 4, 1, "restricted access"),
+        ("persian_gulf", "strait_of_hormuz", 1, 1, "open transit"),
+        ("strait_of_hormuz", "persian_gulf", 1, 1, "open transit"),
+    ]
+    for from_t, to_t, sea_t, air_t, access in connections:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO theater_connections(from_theater, to_theater, transit_turns_sea, transit_turns_air, political_access_rule)
+            VALUES(?,?,?,?,?)
+            """,
+            (from_t, to_t, sea_t, air_t, access),
+        )
+
+    # Seed inventories and deployments
+    cursor = conn.cursor()
+    cursor.execute("SELECT DISTINCT actor_id, family, initial_ammo_stock FROM military_platforms")
+    platform_families = cursor.fetchall()
+    for act_id, family, initial_ammo_stock in platform_families:
+        stock = initial_ammo_stock if initial_ammo_stock is not None else 100
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO platform_inventories (
+                actor_id, platform_family, stock_current, stock_max,
+                burn_rate_standby, burn_rate_active, resupply_rate_turn
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (act_id, family, stock, stock, 0.05, 2.5, 4),
+        )
+
+    cursor.execute("SELECT platform_id, actor_id, quantity_max, quantity_min FROM military_platforms")
+    platforms_list = cursor.fetchall()
+    for platform_id, act_id, q_max, q_min in platforms_list:
+        qty = q_max if q_max is not None else (q_min if q_min is not None else 10)
+        act_upper = act_id.upper()
+        if act_upper == "IR":
+            default_theater = "persian_gulf"
+        elif act_upper in {"HOUTHIS", "US"}:
+            default_theater = "red_sea"
+        elif act_upper in {"IL", "HEZBOLLAH"}:
+            default_theater = "levant_corridor"
+        elif act_upper in {"SA", "AE", "GCC"}:
+            default_theater = "strait_of_hormuz"
+        else:
+            if act_upper in {"CN", "RU", "KP"}:
+                default_theater = "strait_of_hormuz"
+            else:
+                default_theater = "red_sea"
+
+        deployment_id = f"DEP_{platform_id}_{default_theater}"
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO actor_deployments (
+                deployment_id, actor_id, platform_id, theater_id,
+                quantity_deployed, current_status, destination_theater, remaining_transit_turns
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (deployment_id, act_id, platform_id, default_theater, qty, "deployed", None, None),
         )
 
 
