@@ -1132,6 +1132,10 @@ def _world_actor_context(conn: sqlite3.Connection, actor_id: str, max_rows: int)
         "SELECT * FROM field_provenance WHERE record_id LIKE ? OR record_id IN (SELECT platform_id FROM military_platforms WHERE actor_id=?) ORDER BY table_name, record_id LIMIT ?",
         (f"{actor_id}:%", actor_id, max_rows),
     )
+    actor_deployments = _fetch_all(conn, "SELECT * FROM actor_deployments WHERE actor_id=?", (actor_id,))
+    platform_inventories = _fetch_all(conn, "SELECT * FROM platform_inventories WHERE actor_id=?", (actor_id,))
+    geographic_theaters = _fetch_all(conn, "SELECT * FROM geographic_theaters")
+    theater_connections = _fetch_all(conn, "SELECT * FROM theater_connections")
     return {
         "world_actor": dict(actor),
         "pmesii_metrics": metrics,
@@ -1140,6 +1144,10 @@ def _world_actor_context(conn: sqlite3.Connection, actor_id: str, max_rows: int)
         "force_posture": posture,
         "weapon_interactions": interactions,
         "field_provenance": provenance,
+        "actor_deployments": actor_deployments,
+        "platform_inventories": platform_inventories,
+        "geographic_theaters": geographic_theaters,
+        "theater_connections": theater_connections,
     }
 
 

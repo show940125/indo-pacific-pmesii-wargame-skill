@@ -206,6 +206,18 @@ def validate_actor_response(actor_id: str, payload: dict[str, Any], context_pack
                     violations.append({"rule_id": "CAPABILITY_NOT_SEEDED", "severity": "high", "message": "Actor action references no capability available to the concrete actor."})
                 if available_platforms and platform_refs and not any(ref in available_platforms for ref in platform_refs):
                     violations.append({"rule_id": "PLATFORM_NOT_SEEDED", "severity": "high", "message": "Actor action references platform outside concrete actor inventory."})
+                
+                # Check for transit platform availability
+                deployments = concrete.get("actor_deployments") or []
+                for p_ref in platform_refs:
+                    p_deps = [d for d in deployments if str(d.get("platform_id")).lower() == p_ref.lower()]
+                    if p_deps:
+                        if all(str(d.get("current_status")).lower() == "transit" for d in p_deps):
+                            violations.append({
+                                "rule_id": "PLATFORM_UNAVAILABLE_DUE_TO_TRANSIT",
+                                "severity": "high",
+                                "message": f"Platform {p_ref} is currently in transit and cannot perform tactical actions."
+                            })
         if not payload.get("constraints_considered"):
             violations.append({"rule_id": "CONSTRAINTS_REQUIRED", "severity": "medium", "message": "Actor must state constraints considered."})
     if actor_id == "White":

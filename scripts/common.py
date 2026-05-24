@@ -244,6 +244,128 @@ def calculate_combat_outcome(
     }
 
 
+def update_deployments(deployments: list[dict]) -> list[dict]:
+    for dep in deployments:
+        status_key = "status" if "status" in dep else "current_status"
+        turns_key = "remaining_turns" if "remaining_turns" in dep else "remaining_transit_turns"
+        
+        if dep.get(status_key) == "transit":
+            rem = dep.get(turns_key, 0)
+            if rem is None:
+                rem = 0
+            if rem > 1:
+                dep[turns_key] = rem - 1
+            else:
+                dep[turns_key] = 0
+                dep[status_key] = "patrol"
+                if "destination_theater" in dep and dep["destination_theater"]:
+                    dep["theater_id"] = dep["destination_theater"]
+                    dep["destination_theater"] = None
+    return deployments
+
+
+def update_database_deployments(db_path: str | Path) -> None:
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='actor_deployments'")
+        if not cursor.fetchone():
+            return
+            
+        cursor.execute("SELECT * FROM actor_deployments WHERE current_status = 'transit'")
+        rows = [dict(row) for row in cursor.fetchall()]
+        
+        if rows:
+            updated_rows = update_deployments(rows)
+            for dep in updated_rows:
+                cursor.execute(
+                    """
+                    UPDATE actor_deployments 
+                    SET current_status = ?, theater_id = ?, destination_theater = ?, remaining_transit_turns = ?
+                    WHERE deployment_id = ?
+                    """,
+                    (
+                        dep["current_status"],
+                        dep["theater_id"],
+                        dep["destination_theater"],
+                        dep["remaining_transit_turns"],
+                        dep["deployment_id"]
+                    )
+                )
+            conn.commit()
+    finally:
+        conn.close()
+
+
+def calculate_stockpile(current: int, mode: str, burn_active: float, resupply: int, max_stock: int = 1000) -> int:
+    burn = burn_active if mode == "active" else 0.05
+    new_val = max(0, current - burn + resupply)
+    if max_stock is not None:
+        new_val = min(max_stock, new_val)
+    return int(new_val)
+
+
+def update_database_inventories(db_path: str | Path, used_platform_ids: list[str]) -> None:
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='platform_inventories'")
+        if not cursor.fetchone():
+            return
+            
+        active_set = set()
+        if used_platform_ids:
+            placeholders = ",".join("?" for _ in used_platform_ids)
+            cursor.execute(
+                f"SELECT actor_id, family FROM military_platforms WHERE platform_id IN ({placeholders})",
+                tuple(used_platform_ids)
+            )
+            for row in cursor.fetchall():
+                active_set.add((row["actor_id"], row["family"]))
+                
+        cursor.execute("SELECT * FROM platform_inventories")
+        inventories = cursor.fetchall()
+        for inv in inventories:
+            actor_id = inv["actor_id"]
+            family = inv["platform_family"]
+            current = inv["stock_current"]
+            max_stock = inv["stock_max"]
+            burn_standby = inv["burn_rate_standby"]
+            burn_active = inv["burn_rate_active"]
+            resupply = inv["resupply_rate_turn"]
+            
+            mode = "active" if (actor_id, family) in active_set else "standby"
+            burn = burn_active if mode == "active" else burn_standby
+            
+            new_stock = max(0, min(max_stock, int(current - burn + resupply)))
+            
+            cursor.execute(
+                "UPDATE platform_inventories SET stock_current = ? WHERE actor_id = ? AND platform_family = ?",
+                (new_stock, actor_id, family)
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def check_and_generate_constraints(indicators: dict) -> list[dict]:
+    constraints = []
+    if indicators.get("M", 0) > 70:
+        constraints.append({
+            "constraint_id": "C_DYN_M70",
+            "actor_id": "Blue",
+            "category": "military",
+            "rule_text": "由於上一週平民傷亡上升與盟友施壓，本週你被禁止在未遭受直接襲擊的情況下使用大規模遠距導彈打擊。",
+            "severity": "high",
+            "restriction_text": "由於上一週平民傷亡上升與盟友施壓，本週你被禁止在未遭受直接襲擊的情況下使用大規模遠距導彈打擊。"
+        })
+    return constraints
+
+
 TERMS_AND_PARAMETERS = [
     {
         "名稱": "PMESII",

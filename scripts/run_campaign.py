@@ -224,6 +224,31 @@ def main() -> None:
                 collection_plan=collection_plan,
             )
         turn_results.append(turn_result)
+        from common import update_database_deployments, update_database_inventories
+        update_database_deployments(mission["baseline_db_path"])
+        used_platform_ids = []
+        for coa in [turn_result.blue_coa, turn_result.red_coa]:
+            if coa:
+                for action in coa.get("subagent_actions", []):
+                    used_platform_ids.extend(action.get("platform_refs", []))
+        update_database_inventories(mission["baseline_db_path"], used_platform_ids)
+        
+        # 任務 5：動態 Constraints 約束 Prompt 閉環控制
+        from common import check_and_generate_constraints
+        dyn_constraints = check_and_generate_constraints(turn_result.state_after)
+        import sqlite3
+        conn = sqlite3.connect(mission["knowledge_db_path"])
+        try:
+            conn.execute("DELETE FROM constraints WHERE constraint_id LIKE 'C_DYN_%'")
+            for c in dyn_constraints:
+                conn.execute(
+                    "INSERT OR REPLACE INTO constraints (constraint_id, actor_id, category, rule_text, severity) VALUES (?, ?, ?, ?, ?)",
+                    (c["constraint_id"], c["actor_id"], c["category"], c["rule_text"], c["severity"])
+                )
+            conn.commit()
+        finally:
+            conn.close()
+        
         state = turn_result.state_after
         last_indicators = turn_result.indicators
         all_evidence.extend(turn_result.evidence)

@@ -758,6 +758,69 @@ class V2UnitTests(unittest.TestCase):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
+    def test_transit_delay(self) -> None:
+        from common import update_deployments
+        # Transit from Persian Gulf to Red Sea requires 2 turns
+        deployments = [{"platform_id": "DDG-51", "status": "transit", "remaining_turns": 2}]
+        updated = update_deployments(deployments)
+        self.assertEqual(updated[0]["remaining_turns"], 1)
+        self.assertEqual(updated[0]["status"], "transit")
+
+    def test_transit_blocking(self) -> None:
+        from gemini_actor import validate_actor_response
+        
+        # Mock context pack containing a platform entirely in transit
+        context_pack = {
+            "concrete_actor_context": {
+                "actor_deployments": [
+                    {
+                        "platform_id": "DDG-51",
+                        "current_status": "transit",
+                        "quantity_deployed": 1,
+                        "remaining_transit_turns": 2
+                    }
+                ]
+            }
+        }
+        
+        # Test COA referencing the unavailable platform DDG-51
+        payload = {
+            "actor_id": "Blue",
+            "scenario_role": "Blue",
+            "subagent_actions": [
+                {
+                    "dimension": "M",
+                    "db_refs": ["world_actors:US"],
+                    "platform_refs": ["DDG-51"],
+                    "capability_refs": ["CAP_001"]
+                }
+            ],
+            "constraints_considered": ["C_1"]
+        }
+        
+        violations = validate_actor_response("Blue", payload, context_pack)
+        
+        # It must yield a PLATFORM_UNAVAILABLE_DUE_TO_TRANSIT warning/violation
+        has_transit_violation = any(v.get("rule_id") == "PLATFORM_UNAVAILABLE_DUE_TO_TRANSIT" for v in violations)
+        self.assertTrue(has_transit_violation, "Should raise PLATFORM_UNAVAILABLE_DUE_TO_TRANSIT when all units are in transit.")
+
+    def test_stockpile_depletion(self) -> None:
+        from common import calculate_stockpile
+        # Standby state decreases slightly, active decreases heavily
+        stock_active = calculate_stockpile(current=100, mode="active", burn_active=2.5, resupply=4)
+        self.assertEqual(stock_active, 101) # 100 - 2.5 + 4 = 101.5 -> 101 (rounded)
+        
+        # Test max_stock limit
+        stock_max_limit = calculate_stockpile(current=1000, mode="standby", burn_active=2.5, resupply=10, max_stock=1000)
+        self.assertEqual(stock_max_limit, 1000) # Should be capped at 1000
+
+    def test_dynamic_constraints(self) -> None:
+        from common import check_and_generate_constraints
+        indicators = {"M": 75}
+        constraints = check_and_generate_constraints(indicators)
+        self.assertTrue(len(constraints) > 0)
+        self.assertIn("被禁止在未遭受直接襲擊", constraints[0]["restriction_text"])
+
 
 
 if __name__ == "__main__":
