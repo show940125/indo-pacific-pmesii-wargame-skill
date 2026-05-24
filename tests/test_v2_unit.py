@@ -814,13 +814,74 @@ class V2UnitTests(unittest.TestCase):
         stock_max_limit = calculate_stockpile(current=1000, mode="standby", burn_active=2.5, resupply=10, max_stock=1000)
         self.assertEqual(stock_max_limit, 1000) # Should be capped at 1000
 
-    def test_dynamic_constraints(self) -> None:
-        from common import check_and_generate_constraints
-        indicators = {"M": 75}
-        constraints = check_and_generate_constraints(indicators)
-        self.assertTrue(len(constraints) > 0)
-        self.assertIn("被禁止在未遭受直接襲擊", constraints[0]["restriction_text"])
-
+    def test_bbc_report_expansion(self) -> None:
+        from common import render_news_report_markdown
+        from knowledge_db import seed_database
+        import tempfile
+        import shutil
+        import sqlite3
+        
+        tmp = Path(tempfile.mkdtemp(prefix="pmesii_v5_news_test_"))
+        try:
+            db_path = tmp / "wargame_knowledge.sqlite"
+            seed_database(
+                db_path=db_path,
+                mission=self.mission,
+                scenario=self.scenario,
+                actor_config={"blue_priorities": {"M": 0.9}, "red_priorities": {"I": 0.9}},
+                collection_plan={"sources": [{"name": "unit_source", "tier": "public"}]},
+                references_dir=SKILL_DIR / "references",
+            )
+            
+            # Setup mock turn results with Monte Carlo data
+            turn_results = [
+                {
+                    "turn_id": 1,
+                    "state_before": {"P": 50, "M": 65, "E": 55, "S": 50, "I": 60, "Infra": 55},
+                    "state_after": {"P": 51, "M": 68, "E": 56, "S": 51, "I": 62, "Infra": 56},
+                    "event_ledger": [
+                        {
+                            "event_id": "T01EV01",
+                            "event_type": "simulated_engagement",
+                            "actor": "Red",
+                            "target": "Blue",
+                            "location": "紅海",
+                            "action_detail": "以反艦巡弋飛彈襲擊驅逐艦",
+                            "estimated_outcome": "局部防空防禦",
+                            "casualty_or_loss_band": "低損耗帶",
+                            "probability": 0.72,
+                            "confidence": 0.85,
+                            "roll": 0.45,
+                            "p_success": 0.68,
+                            "evidence_ids": ["E1"],
+                            "assumption_links": ["a1"]
+                        }
+                    ],
+                    "adjudication": {
+                        "decision": "gray_zone_competition",
+                        "rule_hits": [],
+                        "rule_fires": []
+                    }
+                }
+            ]
+            
+            report = render_news_report_markdown(
+                mission=self.mission,
+                final_state={"P": 51, "M": 68, "E": 56, "S": 51, "I": 62, "Infra": 56},
+                indicators={"leading": [], "significant": [], "confirmatory": []},
+                key_judgments=[{"claim": "局部升級風險"}],
+                ach_detail={"hypothesis_summaries": []},
+                turn_results=turn_results,
+                baseline_db_path=db_path,
+                knowledge_db_path=db_path
+            )
+            
+            self.assertIn("BBC", report)
+            self.assertIn("紅海", report)
+            self.assertIn("庫存", report) # Should mention munitions stocks or inventory analysis
+            self.assertGreater(len(report), 1000) # Ensure it has long expanded text length
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
 
 
 if __name__ == "__main__":

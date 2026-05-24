@@ -175,7 +175,40 @@ def main() -> None:
     mission["actor_scope"] = args.actor_scope
     mission["baseline_db_path"] = str(out_dir / "actor_baseline_db.sqlite")
     mission["knowledge_db_path"] = str(resolve_knowledge_db_path(args.knowledge_db or mission.get("knowledge_db_path")))
+    
     baseline_meta = ensure_actor_baseline_db(mission["baseline_db_path"], mission, collection_plan)
+    
+    def _copy_v5_tables_to_baseline(src_db, dest_db):
+        import sqlite3
+        src_conn = sqlite3.connect(src_db)
+        dest_conn = sqlite3.connect(dest_db)
+        try:
+            src_curr = src_conn.cursor()
+            dest_curr = dest_conn.cursor()
+            tables = [
+                "geographic_theaters",
+                "theater_connections",
+                "actor_deployments",
+                "platform_inventories",
+                "military_platforms",
+                "weapon_interactions"
+            ]
+            for table in tables:
+                src_curr.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (table,))
+                row = src_curr.fetchone()
+                if row and row[0]:
+                    dest_curr.execute(row[0])
+                    src_curr.execute(f"SELECT * FROM {table}")
+                    rows = src_curr.fetchall()
+                    if rows:
+                        placeholders = ",".join("?" for _ in rows[0])
+                        dest_curr.executemany(f"INSERT OR REPLACE INTO {table} VALUES ({placeholders})", rows)
+            dest_conn.commit()
+        finally:
+            src_conn.close()
+            dest_conn.close()
+            
+    _copy_v5_tables_to_baseline(mission["knowledge_db_path"], mission["baseline_db_path"])
 
     skill_dir = Path(__file__).resolve().parent.parent
     export_schemas(skill_dir / "assets" / "schemas")
@@ -318,6 +351,8 @@ def main() -> None:
         key_judgments=key_judgments,
         ach_detail=ach_detailed,
         turn_results=turn_results,
+        baseline_db_path=mission.get("baseline_db_path"),
+        knowledge_db_path=mission.get("knowledge_db_path"),
     )
     terms_doc = render_terms_and_parameters(mission, scenario, actor_config)
     timeline_md = render_turn_timeline(turn_results)
