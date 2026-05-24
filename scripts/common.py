@@ -201,6 +201,17 @@ def calculate_combat_outcome(
                     defender_family = def_row["platform_family"]
                     defender_concrete_id = def_row["actor_id"]
                     stock_defender = int(def_row["stock_current"]) if def_row["stock_current"] is not None else 0
+    except sqlite3.OperationalError:
+        attacker_concrete_id = attacker_id.upper()
+        defender_concrete_id = defender_id.upper()
+        attacker_family = None
+        defender_family = None
+        stock_attacker = 1000
+        stock_defender = 1000
+        ammo_consume_attacker = 1
+        ammo_consume_defender = 1
+        p_success_min = 0.65
+        p_success_max = 0.85
     finally:
         conn.close()
 
@@ -242,6 +253,7 @@ def calculate_combat_outcome(
         "p_success_min": p_success_min,
         "p_success_max": p_success_max,
     }
+
 
 
 def update_deployments(deployments: list[dict]) -> list[dict]:

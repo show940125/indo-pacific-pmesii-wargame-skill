@@ -176,6 +176,20 @@ def main() -> None:
     mission["baseline_db_path"] = str(out_dir / "actor_baseline_db.sqlite")
     mission["knowledge_db_path"] = str(resolve_knowledge_db_path(args.knowledge_db or mission.get("knowledge_db_path")))
     
+    # 檢查並自癒 knowledge_db (若在 CI 等全新環境執行)
+    k_db_path = Path(mission["knowledge_db_path"])
+    if not k_db_path.exists():
+        from knowledge_db import seed_database
+        k_db_path.parent.mkdir(parents=True, exist_ok=True)
+        seed_database(
+            db_path=k_db_path,
+            mission=mission,
+            scenario=scenario,
+            actor_config=actor_config,
+            collection_plan=collection_plan,
+            references_dir=Path(__file__).resolve().parent.parent / "references"
+        )
+    
     baseline_meta = ensure_actor_baseline_db(mission["baseline_db_path"], mission, collection_plan)
     
     def _copy_v5_tables_to_baseline(src_db, dest_db):
