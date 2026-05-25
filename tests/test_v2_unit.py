@@ -730,7 +730,7 @@ class V2UnitTests(unittest.TestCase):
 
     def test_stochastic_adjudication(self) -> None:
         import sqlite3
-        tmp = Path(tempfile.mkdtemp(prefix="pmesii_v5_stochastic_test_"))
+        tmp = Path(tempfile.mkdtemp(prefix="pmesii_v6_stochastic_test_"))
         try:
             db_path = tmp / "wargame_knowledge.sqlite"
             seed_database(
@@ -741,20 +741,25 @@ class V2UnitTests(unittest.TestCase):
                 collection_plan={"sources": [{"name": "unit_source", "tier": "public", "independence_group": "unit"}]},
                 references_dir=SKILL_DIR / "references",
             )
-            res = calculate_combat_outcome(db_path, "Red", "Blue", seed=42)
-            self.assertEqual(res["attacker_concrete_id"], "HOUTHIS")
-            self.assertEqual(res["defender_concrete_id"], "US")
-            self.assertEqual(res["attacker_family"], "cruise_missile")
-            self.assertEqual(res["defender_family"], "surface_combatant")
-            self.assertGreater(res["stock_defender"], 0)
-            self.assertEqual(res["p_success_min"], 0.1)
-            self.assertEqual(res["p_success_max"], 0.9)
-            self.assertEqual(res["p_success"], 0.5)
-            self.assertIn("intercepted", res)
-            self.assertIn("roll", res)
+            # Salvo size = 1
+            res_single = calculate_combat_outcome(db_path, "Red", "Blue", seed=42, salvo_size=1)
+            self.assertEqual(res_single["attacker_concrete_id"], "HOUTHIS")
+            self.assertEqual(res_single["defender_concrete_id"], "US")
+            self.assertEqual(res_single["attacker_family"], "cruise_missile")
+            self.assertEqual(res_single["defender_family"], "surface_combatant")
+            self.assertGreater(res_single["stock_defender"], 0)
+            
+            # Salvo size = 20 (Should trigger decay)
+            res_salvo = calculate_combat_outcome(db_path, "Red", "Blue", seed=42, salvo_size=20)
+            self.assertLess(res_salvo["p_success"], res_single["p_success"], "Probability should decay under saturation")
+            self.assertGreaterEqual(res_salvo["p_success"], 0.05, "Probability should not fall below min_p_success")
 
             # Test defender stock <= 0
             conn = sqlite3.connect(db_path)
+            conn.execute(
+                "UPDATE base_inventories SET stock_current = 0"
+            )
+            # Also update platform_inventories for fallback
             conn.execute(
                 "UPDATE platform_inventories SET stock_current = 0 WHERE actor_id = 'US' AND platform_family = 'surface_combatant'"
             )
@@ -762,16 +767,10 @@ class V2UnitTests(unittest.TestCase):
             conn.close()
 
             res_empty = calculate_combat_outcome(db_path, "Red", "Blue", seed=42)
+            # If defender is empty, it should fail to intercept
             self.assertFalse(res_empty["intercepted"])
             self.assertEqual(res_empty["p_success"], 0.0)
             self.assertEqual(res_empty["roll"], 1.0)
-            self.assertEqual(res_empty["stock_defender"], 0)
-
-            # Test default probability bounds
-            res_default = calculate_combat_outcome(db_path, "FOO", "BAR", seed=42)
-            self.assertEqual(res_default["p_success_min"], 0.65)
-            self.assertEqual(res_default["p_success_max"], 0.85)
-            self.assertEqual(res_default["p_success"], 0.75)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 

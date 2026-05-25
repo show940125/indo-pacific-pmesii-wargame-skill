@@ -65,6 +65,7 @@ def calculate_combat_outcome(
     attacker_id: str,
     defender_id: str,
     seed: int,
+    salvo_size: int = 1,
 ) -> dict[str, Any]:
     db_path = Path(database_path)
     if not db_path.exists():
@@ -84,6 +85,7 @@ def calculate_combat_outcome(
             "p_success_max": 0.85,
         }
 
+    import math
     conn = sqlite3.connect(db_path)
     try:
         conn.row_factory = sqlite3.Row
@@ -201,6 +203,55 @@ def calculate_combat_outcome(
                     defender_family = def_row["platform_family"]
                     defender_concrete_id = def_row["actor_id"]
                     stock_defender = int(def_row["stock_current"]) if def_row["stock_current"] is not None else 0
+
+        # V6 Base Inventories Query override
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='base_inventories'")
+        if cursor.fetchone():
+            # Query base inventories for attacker
+            if attacker_family and attacker_concrete_id:
+                cursor.execute(
+                    """
+                    SELECT SUM(bi.stock_current) AS total_stock
+                    FROM base_inventories bi
+                    JOIN platform_munitions pm ON bi.munitions_id = pm.munitions_id
+                    WHERE pm.munitions_family = ?
+                      AND (
+                          (? = 'US' AND (bi.base_id LIKE '%Guam%' OR bi.base_id LIKE '%Kadena%' OR bi.base_id LIKE '%Yokosuka%' OR bi.base_id LIKE '%Manama%' OR bi.base_id LIKE '%Udeid%'))
+                          OR (? = 'TW' AND (bi.base_id LIKE '%Tsoying%' OR bi.base_id LIKE '%Chingchuangang%'))
+                          OR (? = 'CN' AND (bi.base_id LIKE '%Sanya%' OR bi.base_id LIKE '%Zhanjiang%'))
+                          OR (? = 'IR' AND bi.base_id LIKE '%Bandar%')
+                          OR (? = 'IL' AND bi.base_id LIKE '%Palmachim%')
+                          OR (? = 'HOUTHIS' AND bi.base_id LIKE '%Hodeidah%')
+                      )
+                    """,
+                    (attacker_family, attacker_concrete_id, attacker_concrete_id, attacker_concrete_id, attacker_concrete_id, attacker_concrete_id, attacker_concrete_id)
+                )
+                r = cursor.fetchone()
+                if r and r["total_stock"] is not None:
+                    stock_attacker = int(r["total_stock"])
+
+            # Query base inventories for defender
+            if defender_family and defender_concrete_id:
+                cursor.execute(
+                    """
+                    SELECT SUM(bi.stock_current) AS total_stock
+                    FROM base_inventories bi
+                    JOIN platform_munitions pm ON bi.munitions_id = pm.munitions_id
+                    WHERE pm.munitions_family = ?
+                      AND (
+                          (? = 'US' AND (bi.base_id LIKE '%Guam%' OR bi.base_id LIKE '%Kadena%' OR bi.base_id LIKE '%Yokosuka%' OR bi.base_id LIKE '%Manama%' OR bi.base_id LIKE '%Udeid%'))
+                          OR (? = 'TW' AND (bi.base_id LIKE '%Tsoying%' OR bi.base_id LIKE '%Chingchuangang%'))
+                          OR (? = 'CN' AND (bi.base_id LIKE '%Sanya%' OR bi.base_id LIKE '%Zhanjiang%'))
+                          OR (? = 'IR' AND bi.base_id LIKE '%Bandar%')
+                          OR (? = 'IL' AND bi.base_id LIKE '%Palmachim%')
+                          OR (? = 'HOUTHIS' AND bi.base_id LIKE '%Hodeidah%')
+                      )
+                    """,
+                    (defender_family, defender_concrete_id, defender_concrete_id, defender_concrete_id, defender_concrete_id, defender_concrete_id, defender_concrete_id)
+                )
+                r = cursor.fetchone()
+                if r and r["total_stock"] is not None:
+                    stock_defender = int(r["total_stock"])
     except sqlite3.OperationalError:
         attacker_concrete_id = attacker_id.upper()
         defender_concrete_id = defender_id.upper()
@@ -232,7 +283,15 @@ def calculate_combat_outcome(
             "p_success_max": p_success_max,
         }
 
-    p_success = (p_success_min + p_success_max) / 2.0
+    # Saturation decay calculation
+    p_base = (p_success_min + p_success_max) / 2.0
+    if salvo_size > 8:
+        # P = p_base * exp(-0.04 * (salvo_size - 8))
+        p_success = p_base * math.exp(-0.04 * (salvo_size - 8))
+        p_success = max(0.05, p_success)
+    else:
+        p_success = p_base
+
     rng = random.Random(seed)
     roll = rng.random()
 
@@ -246,8 +305,8 @@ def calculate_combat_outcome(
         "defender_concrete_id": defender_concrete_id,
         "attacker_family": attacker_family,
         "defender_family": defender_family,
-        "ammo_consume_attacker": ammo_consume_attacker,
-        "ammo_consume_defender": ammo_consume_defender,
+        "ammo_consume_attacker": ammo_consume_attacker * salvo_size,
+        "ammo_consume_defender": ammo_consume_defender * min(salvo_size, 8), # Cap defender intercept attempts
         "stock_attacker": stock_attacker,
         "stock_defender": stock_defender,
         "p_success_min": p_success_min,
