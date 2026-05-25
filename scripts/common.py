@@ -1416,27 +1416,76 @@ def build_turn_event_ledger(
 
     db_path = Path(database_path) if database_path else None
     if db_path and db_path.exists():
-        res = calculate_combat_outcome(db_path, "Red", "Blue", seed)
+        # Generate salvo size randomly based on seed
+        salvo_rng = make_rng(seed, turn_id, "salvo")
+        salvo_size = salvo_rng.randint(6, 16)
+
+        res = calculate_combat_outcome(db_path, "Red", "Blue", seed, salvo_size=salvo_size)
         # Deduct ammunition from inventories if defender has stock and commit_ammo_deduction is True
         if res.get("stock_defender", 0) > 0:
             if commit_ammo_deduction:
                 conn = sqlite3.connect(db_path)
                 try:
+                    cursor = conn.cursor()
                     if res.get("attacker_concrete_id") and res.get("attacker_family"):
                         new_att_stock = max(0, res["stock_attacker"] - res["ammo_consume_attacker"])
                         conn.execute(
                             "UPDATE platform_inventories SET stock_current = ? WHERE actor_id = ? AND platform_family = ?",
                             (new_att_stock, res["attacker_concrete_id"], res["attacker_family"])
                         )
+                        # Deduct base_inventories
+                        cursor.execute("SELECT munitions_id FROM platform_munitions WHERE munitions_family = ?", (res["attacker_family"],))
+                        mun_row = cursor.fetchone()
+                        if mun_row:
+                            mun_id = mun_row[0]
+                            conn.execute(
+                                """
+                                UPDATE base_inventories 
+                                SET stock_current = MAX(0, stock_current - ?) 
+                                WHERE munitions_id = ?
+                                  AND (
+                                      (? = 'US' AND (base_id LIKE '%Guam%' OR base_id LIKE '%Kadena%' OR base_id LIKE '%Yokosuka%' OR base_id LIKE '%Manama%' OR base_id LIKE '%Udeid%'))
+                                      OR (? = 'TW' AND (base_id LIKE '%Tsoying%' OR base_id LIKE '%Chingchuangang%'))
+                                      OR (? = 'CN' AND (base_id LIKE '%Sanya%' OR base_id LIKE '%Zhanjiang%'))
+                                      OR (? = 'IR' AND base_id LIKE '%Bandar%')
+                                      OR (? = 'IL' AND base_id LIKE '%Palmachim%')
+                                      OR (? = 'HOUTHIS' AND base_id LIKE '%Hodeidah%')
+                                  )
+                                """,
+                                (res["ammo_consume_attacker"], mun_id, res["attacker_concrete_id"], res["attacker_concrete_id"], res["attacker_concrete_id"], res["attacker_concrete_id"], res["attacker_concrete_id"], res["attacker_concrete_id"])
+                            )
+
                     if res.get("defender_concrete_id") and res.get("defender_family"):
                         new_def_stock = max(0, res["stock_defender"] - res["ammo_consume_defender"])
                         conn.execute(
                             "UPDATE platform_inventories SET stock_current = ? WHERE actor_id = ? AND platform_family = ?",
                             (new_def_stock, res["defender_concrete_id"], res["defender_family"])
                         )
+                        # Deduct base_inventories
+                        cursor.execute("SELECT munitions_id FROM platform_munitions WHERE munitions_family = ?", (res["defender_family"],))
+                        mun_row = cursor.fetchone()
+                        if mun_row:
+                            mun_id = mun_row[0]
+                            conn.execute(
+                                """
+                                UPDATE base_inventories 
+                                SET stock_current = MAX(0, stock_current - ?) 
+                                WHERE munitions_id = ?
+                                  AND (
+                                      (? = 'US' AND (base_id LIKE '%Guam%' OR base_id LIKE '%Kadena%' OR base_id LIKE '%Yokosuka%' OR base_id LIKE '%Manama%' OR base_id LIKE '%Udeid%'))
+                                      OR (? = 'TW' AND (base_id LIKE '%Tsoying%' OR base_id LIKE '%Chingchuangang%'))
+                                      OR (? = 'CN' AND (base_id LIKE '%Sanya%' OR base_id LIKE '%Zhanjiang%'))
+                                      OR (? = 'IR' AND base_id LIKE '%Bandar%')
+                                      OR (? = 'IL' AND base_id LIKE '%Palmachim%')
+                                      OR (? = 'HOUTHIS' AND base_id LIKE '%Hodeidah%')
+                                  )
+                                """,
+                                (res["ammo_consume_defender"], mun_id, res["defender_concrete_id"], res["defender_concrete_id"], res["defender_concrete_id"], res["defender_concrete_id"], res["defender_concrete_id"], res["defender_concrete_id"])
+                            )
                     conn.commit()
                 finally:
                     conn.close()
+
             # Update stocks in res for description
             res["stock_attacker"] = max(0, res["stock_attacker"] - res["ammo_consume_attacker"])
             res["stock_defender"] = max(0, res["stock_defender"] - res["ammo_consume_defender"])
@@ -1444,22 +1493,50 @@ def build_turn_event_ledger(
         intercepted = res["intercepted"]
         roll = res["roll"]
         p_success = res["p_success"]
-        att_fam = res.get("attacker_family") or "遠距打擊武器"
-        def_fam = res.get("defender_family") or "防空攔截系統"
         att_stock = res.get("stock_attacker", 0)
         def_stock = res.get("stock_defender", 0)
 
+        # Dynamic query for true-named munitions
+        att_mun_name = "遠距打擊彈藥"
+        def_mun_name = "防空反導飛彈"
+        conn = sqlite3.connect(db_path)
+        try:
+            cursor = conn.cursor()
+            if res.get("attacker_family"):
+                cursor.execute("SELECT display_name FROM platform_munitions WHERE munitions_family = ? LIMIT 1", (res["attacker_family"],))
+                r = cursor.fetchone()
+                if r: att_mun_name = r[0]
+            if res.get("defender_family"):
+                cursor.execute("SELECT display_name FROM platform_munitions WHERE munitions_family = ? LIMIT 1", (res["defender_family"],))
+                r = cursor.fetchone()
+                if r: def_mun_name = r[0]
+        except Exception:
+            pass
+        finally:
+            conn.close()
+
+        base_names = {
+            "US": "關島/巴林前沿基地",
+            "TW": "左營海軍港口及防空網",
+            "CN": "海南三亞榆林基地",
+            "IR": "伊朗阿巴斯港基地",
+            "IL": "帕爾馬希姆空軍基地",
+            "HOUTHIS": "葉門荷台達港",
+        }
+        att_base = base_names.get(res.get("attacker_concrete_id"), "前沿突擊陣地")
+        def_base = base_names.get(res.get("defender_concrete_id"), "關鍵戰略樞紐")
+
         if intercepted:
-            combat_detail = f"紅隊使用 {att_fam} 發動遠距打擊，藍隊以 {def_fam} 成功進行防空攔截（攔截率: {p_success:.2f}, 隨機骰值: {roll:.2f} <= {p_success:.2f}）。"
-            combat_outcome = f"攔截成功。交火未造成實質基礎設施損害。雙方剩餘彈藥：紅隊 {att_fam} ({att_stock})，藍隊 {def_fam} ({def_stock})。"
+            combat_detail = f"紅隊自 [{att_base}] 發射 {salvo_size} 枚 {att_mun_name} 實施多波次飽和打擊。藍隊在 [{def_base}] 部署之防禦系統發射 {res.get('ammo_consume_defender', 1)} 枚 {def_mun_name} 成功實施多層次區域攔截（攔截率: {p_success:.2f}，隨機骰值: {roll:.2f} <= {p_success:.2f}，飽和通道未被佔滿）。"
+            combat_outcome = f"防空網攔截成功，彈道與防區外彈藥皆被成功拒止，前沿設施與港口毫無損害。目前雙方剩餘庫存：紅隊 {att_mun_name} 剩餘約 {att_stock} 枚，藍隊 {def_mun_name} 剩餘約 {def_stock} 枚。"
             combat_prob = p_success
         else:
             if res.get("stock_defender", 0) <= 0:
-                combat_detail = f"紅隊使用 {att_fam} 發動攻擊，藍隊因 {def_fam} 彈藥枯竭（剩餘 0）無法執行攔截行動。"
-                combat_outcome = f"打擊穿透防線。交火造成戰術摩擦升高。雙方剩餘彈藥：紅隊 {att_fam} ({att_stock})，藍隊 {def_fam} (0)。"
+                combat_detail = f"紅隊自 [{att_base}] 發射 {salvo_size} 枚 {att_mun_name}。藍隊部署於 [{def_base}] 的防空系統因 {def_mun_name} 彈藥枯竭（現存 0 枚），無法啟動防衛反制行動。"
+                combat_outcome = f"打擊順利突破防線並擊中藍隊前沿設施，造成部分跑道與碼頭受損，戰術摩擦劇烈上升。目前雙方剩餘庫存：紅隊 {att_mun_name} 剩餘約 {att_stock} 枚，藍隊 {def_mun_name} 處於零庫存告急狀態。"
             else:
-                combat_detail = f"紅隊使用 {att_fam} 發動遠距打擊，藍隊嘗試以 {def_fam} 攔截但宣告失敗（攔截率: {p_success:.2f}, 隨機骰值: {roll:.2f} > {p_success:.2f}）。"
-                combat_outcome = f"攔截失敗，打擊穿透防線。交火造成局部戰術損失與摩擦升高。雙方剩餘彈藥：紅隊 {att_fam} ({att_stock})，藍隊 {def_fam} ({def_stock})。"
+                combat_detail = f"紅隊自 [{att_base}] 發射 {salvo_size} 枚 {att_mun_name} 進行壓制打擊。藍隊嘗試以 {def_mun_name} 進行反制，但由於攻擊飽和度高，攔截通道過載而攔截失敗（攔截率: {p_success:.2f}，隨機骰值: {roll:.2f} > {p_success:.2f}）。"
+                combat_outcome = f"打擊突破區域防衛傘，導致前沿部分核心基礎設施運作受損，戰損與戰術風險同步飆升。目前雙方剩餘庫存：紅隊 {att_mun_name} 剩餘約 {att_stock} 枚，藍隊 {def_mun_name} 剩餘約 {def_stock} 枚。"
             combat_prob = p_success
 
     def _event_row(

@@ -457,7 +457,7 @@ class V2UnitTests(unittest.TestCase):
                 collection_plan={"sources": [{"name": "unit_source", "tier": "public", "independence_group": "unit"}]},
                 references_dir=SKILL_DIR / "references",
             )
-            self.assertEqual(meta["schema_version"], 5)
+            self.assertEqual(meta["schema_version"], 6)
             self.assertGreaterEqual(meta["tables"]["actors"], 4)
             self.assertGreaterEqual(meta["tables"]["world_actors"], 20)
             self.assertGreaterEqual(meta["tables"]["military_platforms"], 10)
@@ -476,7 +476,7 @@ class V2UnitTests(unittest.TestCase):
             self.assertTrue(pack["pmesii_indicators"])
             self.assertTrue(pack["capabilities"])
             self.assertTrue(pack["constraints"])
-            self.assertEqual(manifest(db_path)["schema_version"], 5)
+            self.assertEqual(manifest(db_path)["schema_version"], 6)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
