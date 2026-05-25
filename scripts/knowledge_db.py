@@ -857,18 +857,40 @@ def _seed_world_tables(
     for b_id in bases:
         # Determine target actor based on base_id naming conventions
         b_lower = b_id.lower()
-        if "guam" in b_lower or "kadena" in b_lower or "yokosuka" in b_lower or "manama" in b_lower or "udeid" in b_lower:
+        if any(kw in b_lower for kw in ["guam", "kadena", "yokosuka", "manama", "udeid"]):
             target_actors = ["US"]
-        elif "tsoying" in b_lower or "chingchuangang" in b_lower:
+        elif any(kw in b_lower for kw in ["tsoying", "chingchuangang", "suao", "jiashan"]):
             target_actors = ["TW"]
-        elif "sanya" in b_lower or "zhanjiang" in b_lower:
+        elif any(kw in b_lower for kw in ["sanya", "zhanjiang", "zhoushan", "longtian"]):
             target_actors = ["CN"]
-        elif "bandar" in b_lower:
+        elif any(kw in b_lower for kw in ["bandar", "bushehr", "chabahar", "isfahan"]):
             target_actors = ["IR"]
-        elif "palmachim" in b_lower:
+        elif any(kw in b_lower for kw in ["palmachim", "haifa", "nevatim"]):
             target_actors = ["IL"]
-        elif "hodeidah" in b_lower:
+        elif any(kw in b_lower for kw in ["hodeidah", "sanaa"]):
             target_actors = ["HOUTHIS"]
+        elif "vladivostok" in b_lower or "tartus" in b_lower:
+            target_actors = ["RU"]
+        elif "sasebo" in b_lower or "naha" in b_lower:
+            target_actors = ["JP"]
+        elif "busan" in b_lower or "osan" in b_lower:
+            target_actors = ["KR"]
+        elif "nampo" in b_lower or "sinpo" in b_lower:
+            target_actors = ["KP"]
+        elif "akrotiri" in b_lower:
+            target_actors = ["GB"]
+        elif "djibouti" in b_lower:
+            target_actors = ["FR"]
+        elif "darwin" in b_lower:
+            target_actors = ["AU"]
+        elif "nicobar" in b_lower:
+            target_actors = ["IN"]
+        elif "cam_ranh" in b_lower:
+            target_actors = ["VN"]
+        elif "subic" in b_lower:
+            target_actors = ["PH"]
+        elif "bekaa" in b_lower:
+            target_actors = ["HEZBOLLAH"]
         else:
             target_actors = ["US"]
 
