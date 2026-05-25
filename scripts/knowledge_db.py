@@ -1334,6 +1334,31 @@ def _world_actor_context(conn: sqlite3.Connection, actor_id: str, max_rows: int)
     platform_inventories = _fetch_all(conn, "SELECT * FROM platform_inventories WHERE actor_id=?", (actor_id,))
     geographic_theaters = _fetch_all(conn, "SELECT * FROM geographic_theaters")
     theater_connections = _fetch_all(conn, "SELECT * FROM theater_connections")
+
+    # V6 Tables Seeding grounding context
+    base_filter = ""
+    if actor_id == 'US':
+        base_filter = "LIKE '%Guam%' OR base_id LIKE '%Kadena%' OR base_id LIKE '%Yokosuka%' OR base_id LIKE '%Manama%' OR base_id LIKE '%Udeid%'"
+    elif actor_id == 'TW':
+        base_filter = "LIKE '%Tsoying%' OR base_id LIKE '%Chingchuangang%'"
+    elif actor_id == 'CN':
+        base_filter = "LIKE '%Sanya%' OR base_id LIKE '%Zhanjiang%'"
+    elif actor_id == 'IR':
+        base_filter = "LIKE '%Bandar%'"
+    elif actor_id == 'IL':
+        base_filter = "LIKE '%Palmachim%'"
+    elif actor_id == 'HOUTHIS':
+        base_filter = "LIKE '%Hodeidah%'"
+
+    if base_filter:
+        base_inventories = _fetch_all(conn, f"SELECT * FROM base_inventories WHERE base_id {base_filter}")
+    else:
+        base_inventories = _fetch_all(conn, "SELECT * FROM base_inventories")
+
+    geographic_bases = _fetch_all(conn, "SELECT * FROM geographic_bases")
+    logistics_lanes = _fetch_all(conn, "SELECT * FROM logistics_lanes")
+    actor_redlines = _fetch_all(conn, "SELECT * FROM actor_redlines WHERE actor_id=?", (actor_id,))
+
     return {
         "world_actor": dict(actor),
         "pmesii_metrics": metrics,
@@ -1346,6 +1371,10 @@ def _world_actor_context(conn: sqlite3.Connection, actor_id: str, max_rows: int)
         "platform_inventories": platform_inventories,
         "geographic_theaters": geographic_theaters,
         "theater_connections": theater_connections,
+        "geographic_bases": geographic_bases,
+        "base_inventories": base_inventories,
+        "logistics_lanes": logistics_lanes,
+        "actor_redlines": actor_redlines,
     }
 
 
