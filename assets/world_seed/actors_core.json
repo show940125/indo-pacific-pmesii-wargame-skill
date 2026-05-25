@@ -1,5 +1,5 @@
 {
-  "source_policy": "V4 seed uses layered open-source provenance: Wikipedia/Wikidata for broad country baselines, SIPRI/CIA/IISS/official sources for high-impact military and economic fields.",
+  "source_policy": "V6 seed uses layered open-source provenance: Wikipedia/Wikidata for broad country baselines, SIPRI/CIA/IISS/official sources for high-impact military and economic fields.",
   "actors": [
     {"actor_id": "US", "display_name": "United States", "actor_type": "state", "region": "North America", "aliases": ["USA", "United States of America", "America"], "alignment_tags": ["us-led", "nato", "indo-pacific"], "default_bloc_affinity": "Blue"},
     {"actor_id": "CN", "display_name": "China", "actor_type": "state", "region": "East Asia", "aliases": ["PRC", "People's Republic of China", "Mainland China"], "alignment_tags": ["china-led", "indo-pacific"], "default_bloc_affinity": "Red"},
@@ -50,5 +50,28 @@
     {"source_id": "SRC_WIKIDATA", "title": "Wikidata country and organization entities", "url": "https://www.wikidata.org/", "publisher": "Wikimedia Foundation", "source_tier": "open_knowledge_base", "reliability_prior": 0.66},
     {"source_id": "SRC_WIKIPEDIA", "title": "Wikipedia country and military pages", "url": "https://www.wikipedia.org/", "publisher": "Wikimedia Foundation", "source_tier": "open_reference", "reliability_prior": 0.62},
     {"source_id": "SRC_OFFICIAL_TW_DEFENSE", "title": "Taiwan Ministry of National Defense public materials", "url": "https://www.mnd.gov.tw/", "publisher": "Taiwan MND", "source_tier": "official", "reliability_prior": 0.76}
+  ],
+  "geographic_bases": [
+    {"base_id": "Guam_Andersen", "theater_id": "red_sea", "display_name": "關島安德森空軍基地", "base_type": "air_base", "max_capacity_units": 120, "port_throughput_tons_day": 0, "active_defense_level": 0.90, "radar_coverage_range_km": 450},
+    {"base_id": "Guam_Apra", "theater_id": "red_sea", "display_name": "關島阿普拉海軍基地", "base_type": "naval_port", "max_capacity_units": 60, "port_throughput_tons_day": 50000, "active_defense_level": 0.85, "radar_coverage_range_km": 300},
+    {"base_id": "Kadena_Okinawa", "theater_id": "strait_of_hormuz", "display_name": "沖繩嘉手納空軍基地", "base_type": "air_base", "max_capacity_units": 100, "port_throughput_tons_day": 0, "active_defense_level": 0.80, "radar_coverage_range_km": 400},
+    {"base_id": "Yokosuka_Naval", "theater_id": "strait_of_hormuz", "display_name": "橫須賀海軍基地", "base_type": "naval_port", "max_capacity_units": 80, "port_throughput_tons_day": 40000, "active_defense_level": 0.85, "radar_coverage_range_km": 350},
+    {"base_id": "Tsoying_Naval", "theater_id": "strait_of_hormuz", "display_name": "左營海軍基地", "base_type": "naval_port", "max_capacity_units": 45, "port_throughput_tons_day": 15000, "active_defense_level": 0.75, "radar_coverage_range_km": 250},
+    {"base_id": "Chingchuangang", "theater_id": "strait_of_hormuz", "display_name": "空軍清泉崗基地", "base_type": "air_base", "max_capacity_units": 60, "port_throughput_tons_day": 0, "active_defense_level": 0.70, "radar_coverage_range_km": 300},
+    {"base_id": "Sanya_Yulin", "theater_id": "strait_of_hormuz", "display_name": "海南三亞榆林海軍港", "base_type": "naval_port", "max_capacity_units": 90, "port_throughput_tons_day": 35000, "active_defense_level": 0.85, "radar_coverage_range_km": 350},
+    {"base_id": "Bahrain_Manama", "theater_id": "persian_gulf", "display_name": "巴林麥納麥港", "base_type": "naval_port", "max_capacity_units": 40, "port_throughput_tons_day": 20000, "active_defense_level": 0.85, "radar_coverage_range_km": 200},
+    {"base_id": "Al_Udeid_Qatar", "theater_id": "persian_gulf", "display_name": "卡達烏代德空軍基地", "base_type": "air_base", "max_capacity_units": 120, "port_throughput_tons_day": 0, "active_defense_level": 0.80, "radar_coverage_range_km": 300},
+    {"base_id": "Bandar_Abbas", "theater_id": "persian_gulf", "display_name": "伊朗阿巴斯港海軍基地", "base_type": "naval_port", "max_capacity_units": 50, "port_throughput_tons_day": 12000, "active_defense_level": 0.70, "radar_coverage_range_km": 250},
+    {"base_id": "Palmachim_IL", "theater_id": "levant_corridor", "display_name": "帕爾馬希姆空軍基地", "base_type": "air_base", "max_capacity_units": 80, "port_throughput_tons_day": 0, "active_defense_level": 0.90, "radar_coverage_range_km": 400},
+    {"base_id": "Hodeidah_Port", "theater_id": "red_sea", "display_name": "葉門荷台達港", "base_type": "naval_port", "max_capacity_units": 20, "port_throughput_tons_day": 5000, "active_defense_level": 0.30, "radar_coverage_range_km": 150}
+  ],
+  "logistics_lanes": [
+    {"lane_id": "Guam_to_Kadena", "from_base": "Guam_Andersen", "to_base": "Kadena_Okinawa", "transit_turns": 2, "transit_type": "sea", "capacity_limit_tons_turn": 10000, "interdiction_risk": 0.05},
+    {"lane_id": "Sanya_to_Hormuz", "from_base": "Sanya_Yulin", "to_base": "Bandar_Abbas", "transit_turns": 4, "transit_type": "sea", "capacity_limit_tons_turn": 15000, "interdiction_risk": 0.15},
+    {"lane_id": "Udeid_to_Manama", "from_base": "Al_Udeid_Qatar", "to_base": "Bahrain_Manama", "transit_turns": 1, "transit_type": "land", "capacity_limit_tons_turn": 5000, "interdiction_risk": 0.01}
+  ],
+  "actor_redlines": [
+    {"redline_id": "US_CASUALTY_REDLINE", "actor_id": "US", "trigger_condition": "US_casualties > 10", "escalation_doctrine": ["authorized_deep_strike", "cancel_restrictive_roe"], "pmesii_impact": {"M": 15.0, "P": -10.0, "S": 5.0}},
+    {"redline_id": "TW_TERRITORY_REDLINE", "actor_id": "TW", "trigger_condition": "TW_territory_hit > 0", "escalation_doctrine": ["full_mobilization", "counterstrike_coastal_targets"], "pmesii_impact": {"M": 20.0, "S": 10.0, "E": -15.0}}
   ]
 }

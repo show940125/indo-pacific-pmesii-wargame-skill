@@ -805,6 +805,131 @@ def _seed_world_tables(
             (deployment_id, act_id, platform_id, default_theater, qty, "deployed", None, None),
         )
 
+    # Seed V6 tables
+    # 1. Seed geographic_bases
+    for row in world_seed.get("geographic_bases", []):
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO geographic_bases (
+                base_id, theater_id, display_name, base_type,
+                max_capacity_units, port_throughput_tons_day,
+                active_defense_level, radar_coverage_range_km
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                row["base_id"],
+                row["theater_id"],
+                row["display_name"],
+                row["base_type"],
+                int(row["max_capacity_units"]),
+                int(row.get("port_throughput_tons_day", 0)),
+                float(row.get("active_defense_level", 0.8)),
+                int(row["radar_coverage_range_km"])
+            ),
+        )
+
+    # 2. Seed platform_munitions
+    for row in military_seed.get("platform_munitions", []):
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO platform_munitions (
+                munitions_id, display_name, munitions_family,
+                unit_cost_usd_k, range_class_km, warhead_type,
+                penetration_factor, guidance_system
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                row["munitions_id"],
+                row["display_name"],
+                row["munitions_family"],
+                int(row["unit_cost_usd_k"]),
+                int(row["range_class_km"]),
+                row["warhead_type"],
+                float(row["penetration_factor"]),
+                row["guidance_system"]
+            ),
+        )
+
+    # 3. Seed base_inventories based on base location / ownership
+    cursor = conn.cursor()
+    cursor.execute("SELECT base_id FROM geographic_bases")
+    bases = [r["base_id"] for r in cursor.fetchall()]
+    for b_id in bases:
+        # Determine target actor based on base_id naming conventions
+        b_lower = b_id.lower()
+        if "guam" in b_lower or "kadena" in b_lower or "yokosuka" in b_lower or "manama" in b_lower or "udeid" in b_lower:
+            target_actors = ["US"]
+        elif "tsoying" in b_lower or "chingchuangang" in b_lower:
+            target_actors = ["TW"]
+        elif "sanya" in b_lower or "zhanjiang" in b_lower:
+            target_actors = ["CN"]
+        elif "bandar" in b_lower:
+            target_actors = ["IR"]
+        elif "palmachim" in b_lower:
+            target_actors = ["IL"]
+        elif "hodeidah" in b_lower:
+            target_actors = ["HOUTHIS"]
+        else:
+            target_actors = ["US"]
+
+        for act in target_actors:
+            cursor.execute("SELECT DISTINCT family, initial_ammo_stock FROM military_platforms WHERE actor_id = ?", (act,))
+            families = cursor.fetchall()
+            for fam, init_stock in families:
+                stock = init_stock if init_stock is not None else 1000
+                # Find matching munitions in platform_munitions
+                cursor.execute("SELECT munitions_id FROM platform_munitions WHERE munitions_family = ?", (fam,))
+                mun_rows = cursor.fetchall()
+                for mun_r in mun_rows:
+                    mun_id = mun_r["munitions_id"]
+                    conn.execute(
+                        """
+                        INSERT OR REPLACE INTO base_inventories (
+                            base_id, munitions_id, stock_current, stock_max,
+                            burn_rate_standby, burn_rate_active, resupply_rate_turn
+                        ) VALUES (?, ?, ?, ?, 0.005, 2.0, 4)
+                        """,
+                        (b_id, mun_id, stock, stock),
+                    )
+
+    # 4. Seed logistics_lanes
+    for row in world_seed.get("logistics_lanes", []):
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO logistics_lanes (
+                lane_id, from_base, to_base, transit_turns,
+                transit_type, capacity_limit_tons_turn, interdiction_risk
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                row["lane_id"],
+                row["from_base"],
+                row["to_base"],
+                int(row["transit_turns"]),
+                row["transit_type"],
+                int(row["capacity_limit_tons_turn"]),
+                float(row.get("interdiction_risk", 0.0))
+            ),
+        )
+
+    # 5. Seed actor_redlines
+    for row in world_seed.get("actor_redlines", []):
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO actor_redlines (
+                redline_id, actor_id, trigger_condition,
+                escalation_doctrine_json, pmesii_impact_json, is_triggered
+            ) VALUES (?, ?, ?, ?, ?, 0)
+            """,
+            (
+                row["redline_id"],
+                row["actor_id"],
+                row["trigger_condition"],
+                _json(row["escalation_doctrine"]),
+                _json(row["pmesii_impact"])
+            ),
+        )
+
 
 def _seed_compat_tables(conn: sqlite3.Connection, actor_config: dict[str, Any]) -> None:
     now = now_iso()

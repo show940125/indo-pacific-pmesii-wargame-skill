@@ -672,6 +672,16 @@ class V2UnitTests(unittest.TestCase):
             for table in v6_tables:
                 cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,))
                 self.assertIsNotNone(cursor.fetchone(), f"Table {table} should exist in V6")
+                
+            # Verify V6 seeding
+            cursor.execute("SELECT COUNT(*) FROM geographic_bases")
+            self.assertGreater(cursor.fetchone()[0], 0, "geographic_bases should contain seeded rows")
+            
+            cursor.execute("SELECT COUNT(*) FROM platform_munitions")
+            self.assertGreater(cursor.fetchone()[0], 0, "platform_munitions should contain seeded rows")
+            
+            cursor.execute("SELECT COUNT(*) FROM base_inventories")
+            self.assertGreater(cursor.fetchone()[0], 0, "base_inventories should contain seeded rows")
             
             # Check new columns exist in military_platforms and contain correct seeded values.
             cursor.execute("PRAGMA table_info(military_platforms)")
