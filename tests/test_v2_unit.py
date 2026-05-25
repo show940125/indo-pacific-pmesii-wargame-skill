@@ -639,13 +639,13 @@ class V2UnitTests(unittest.TestCase):
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
-    def test_sqlite_v5_schema(self):
+    def test_sqlite_v6_schema(self):
         import sqlite3
         import tempfile
         import shutil
         from pathlib import Path
         
-        tmp = Path(tempfile.mkdtemp(prefix="pmesii_v5_schema_test_"))
+        tmp = Path(tempfile.mkdtemp(prefix="pmesii_v6_schema_test_"))
         try:
             db_path = tmp / "wargame_knowledge.sqlite"
             meta = seed_database(
@@ -656,15 +656,22 @@ class V2UnitTests(unittest.TestCase):
                 collection_plan={"sources": [{"name": "unit_source", "tier": "public", "independence_group": "unit"}]},
                 references_dir=SKILL_DIR / "references",
             )
+            self.assertEqual(meta["schema_version"], 6)
             conn = sqlite3.connect(db_path)
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             
-            # Check new tables exist
+            # Check V5 tables still exist
             tables = ["geographic_theaters", "theater_connections", "actor_deployments", "platform_inventories"]
             for table in tables:
                 cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,))
-                self.assertIsNotNone(cursor.fetchone(), f"Table {table} should exist in V5")
+                self.assertIsNotNone(cursor.fetchone(), f"Table {table} should exist in V6")
+            
+            # Check V6 new tables exist
+            v6_tables = ["geographic_bases", "platform_munitions", "base_inventories", "logistics_lanes", "actor_redlines"]
+            for table in v6_tables:
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,))
+                self.assertIsNotNone(cursor.fetchone(), f"Table {table} should exist in V6")
             
             # Check new columns exist in military_platforms and contain correct seeded values.
             cursor.execute("PRAGMA table_info(military_platforms)")

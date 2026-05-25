@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 DIMENSIONS = ["P", "M", "E", "S", "I", "Infra"]
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 def now_iso() -> str:
@@ -422,6 +422,79 @@ def migrate(db_path: str | Path) -> None:
                 PRIMARY KEY (actor_id, platform_family),
                 FOREIGN KEY (actor_id) REFERENCES world_actors(actor_id)
             )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS geographic_bases (
+                base_id TEXT PRIMARY KEY,
+                theater_id TEXT NOT NULL,
+                display_name TEXT NOT NULL,
+                base_type TEXT NOT NULL CHECK(base_type IN ('naval_port', 'air_base', 'ground_garrison', 'radar_outpost')),
+                max_capacity_units INTEGER NOT NULL,
+                port_throughput_tons_day INTEGER DEFAULT 0,
+                active_defense_level REAL DEFAULT 0.8,
+                radar_coverage_range_km INTEGER NOT NULL,
+                FOREIGN KEY (theater_id) REFERENCES geographic_theaters(theater_id)
+            );
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS platform_munitions (
+                munitions_id TEXT PRIMARY KEY,
+                display_name TEXT NOT NULL,
+                munitions_family TEXT NOT NULL,
+                unit_cost_usd_k INTEGER NOT NULL,
+                range_class_km INTEGER NOT NULL,
+                warhead_type TEXT NOT NULL,
+                penetration_factor REAL NOT NULL,
+                guidance_system TEXT NOT NULL
+            );
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS base_inventories (
+                base_id TEXT NOT NULL,
+                munitions_id TEXT NOT NULL,
+                stock_current INTEGER NOT NULL,
+                stock_max INTEGER NOT NULL,
+                burn_rate_standby REAL NOT NULL DEFAULT 0.005,
+                burn_rate_active REAL NOT NULL DEFAULT 2.0,
+                resupply_rate_turn INTEGER NOT NULL,
+                PRIMARY KEY (base_id, munitions_id),
+                FOREIGN KEY (base_id) REFERENCES geographic_bases(base_id),
+                FOREIGN KEY (munitions_id) REFERENCES platform_munitions(munitions_id)
+            );
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS logistics_lanes (
+                lane_id TEXT PRIMARY KEY,
+                from_base TEXT NOT NULL,
+                to_base TEXT NOT NULL,
+                transit_turns INTEGER NOT NULL,
+                transit_type TEXT NOT NULL CHECK(transit_type IN ('sea', 'air', 'land')),
+                capacity_limit_tons_turn INTEGER NOT NULL,
+                interdiction_risk REAL DEFAULT 0.0,
+                FOREIGN KEY (from_base) REFERENCES geographic_bases(base_id),
+                FOREIGN KEY (to_base) REFERENCES geographic_bases(base_id)
+            );
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS actor_redlines (
+                redline_id TEXT PRIMARY KEY,
+                actor_id TEXT NOT NULL,
+                trigger_condition TEXT NOT NULL,
+                escalation_doctrine_json TEXT NOT NULL,
+                pmesii_impact_json TEXT NOT NULL,
+                is_triggered BOOLEAN DEFAULT 0,
+                FOREIGN KEY (actor_id) REFERENCES world_actors(actor_id)
+            );
             """
         )
         conn.execute("INSERT OR REPLACE INTO metadata(key,value,updated_at) VALUES(?,?,?)", ("schema_version", str(SCHEMA_VERSION), now_iso()))
