@@ -208,7 +208,7 @@ class PipelineTests(unittest.TestCase):
             synthesis = json.loads((out_dir / "replay_bundle" / "turn_01_multi_actor_synthesis.json").read_text(encoding="utf-8"))
             self.assertEqual(synthesis["actor_count"], 7)
             manifest = json.loads((out_dir / "knowledge_db_manifest.json").read_text(encoding="utf-8"))
-            self.assertEqual(manifest["schema_version"], 5)
+            self.assertEqual(manifest["schema_version"], 6)
             self.assertGreaterEqual(manifest["coverage"]["world_actor_count"], 20)
             self.assertGreaterEqual(manifest["coverage"]["military_platform_count"], 10)
             artifact = json.loads((out_dir / "run_artifact.json").read_text(encoding="utf-8"))

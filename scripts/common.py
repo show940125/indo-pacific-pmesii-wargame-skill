@@ -1427,33 +1427,37 @@ def build_turn_event_ledger(
                 conn = sqlite3.connect(db_path)
                 try:
                     cursor = conn.cursor()
+                    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='platform_munitions'")
+                    has_v6 = cursor.fetchone() is not None
+
                     if res.get("attacker_concrete_id") and res.get("attacker_family"):
                         new_att_stock = max(0, res["stock_attacker"] - res["ammo_consume_attacker"])
                         conn.execute(
                             "UPDATE platform_inventories SET stock_current = ? WHERE actor_id = ? AND platform_family = ?",
                             (new_att_stock, res["attacker_concrete_id"], res["attacker_family"])
                         )
-                        # Deduct base_inventories
-                        cursor.execute("SELECT munitions_id FROM platform_munitions WHERE munitions_family = ?", (res["attacker_family"],))
-                        mun_row = cursor.fetchone()
-                        if mun_row:
-                            mun_id = mun_row[0]
-                            conn.execute(
-                                """
-                                UPDATE base_inventories 
-                                SET stock_current = MAX(0, stock_current - ?) 
-                                WHERE munitions_id = ?
-                                  AND (
-                                      (? = 'US' AND (base_id LIKE '%Guam%' OR base_id LIKE '%Kadena%' OR base_id LIKE '%Yokosuka%' OR base_id LIKE '%Manama%' OR base_id LIKE '%Udeid%'))
-                                      OR (? = 'TW' AND (base_id LIKE '%Tsoying%' OR base_id LIKE '%Chingchuangang%'))
-                                      OR (? = 'CN' AND (base_id LIKE '%Sanya%' OR base_id LIKE '%Zhanjiang%'))
-                                      OR (? = 'IR' AND base_id LIKE '%Bandar%')
-                                      OR (? = 'IL' AND base_id LIKE '%Palmachim%')
-                                      OR (? = 'HOUTHIS' AND base_id LIKE '%Hodeidah%')
-                                  )
-                                """,
-                                (res["ammo_consume_attacker"], mun_id, res["attacker_concrete_id"], res["attacker_concrete_id"], res["attacker_concrete_id"], res["attacker_concrete_id"], res["attacker_concrete_id"], res["attacker_concrete_id"])
-                            )
+                        # Deduct base_inventories if V6 table exists
+                        if has_v6:
+                            cursor.execute("SELECT munitions_id FROM platform_munitions WHERE munitions_family = ?", (res["attacker_family"],))
+                            mun_row = cursor.fetchone()
+                            if mun_row:
+                                mun_id = mun_row[0]
+                                conn.execute(
+                                    """
+                                    UPDATE base_inventories 
+                                    SET stock_current = MAX(0, stock_current - ?) 
+                                    WHERE munitions_id = ?
+                                      AND (
+                                          (? = 'US' AND (base_id LIKE '%Guam%' OR base_id LIKE '%Kadena%' OR base_id LIKE '%Yokosuka%' OR base_id LIKE '%Manama%' OR base_id LIKE '%Udeid%'))
+                                          OR (? = 'TW' AND (base_id LIKE '%Tsoying%' OR base_id LIKE '%Chingchuangang%'))
+                                          OR (? = 'CN' AND (base_id LIKE '%Sanya%' OR base_id LIKE '%Zhanjiang%'))
+                                          OR (? = 'IR' AND base_id LIKE '%Bandar%')
+                                          OR (? = 'IL' AND base_id LIKE '%Palmachim%')
+                                          OR (? = 'HOUTHIS' AND base_id LIKE '%Hodeidah%')
+                                      )
+                                    """,
+                                    (res["ammo_consume_attacker"], mun_id, res["attacker_concrete_id"], res["attacker_concrete_id"], res["attacker_concrete_id"], res["attacker_concrete_id"], res["attacker_concrete_id"], res["attacker_concrete_id"])
+                                )
 
                     if res.get("defender_concrete_id") and res.get("defender_family"):
                         new_def_stock = max(0, res["stock_defender"] - res["ammo_consume_defender"])
@@ -1461,27 +1465,28 @@ def build_turn_event_ledger(
                             "UPDATE platform_inventories SET stock_current = ? WHERE actor_id = ? AND platform_family = ?",
                             (new_def_stock, res["defender_concrete_id"], res["defender_family"])
                         )
-                        # Deduct base_inventories
-                        cursor.execute("SELECT munitions_id FROM platform_munitions WHERE munitions_family = ?", (res["defender_family"],))
-                        mun_row = cursor.fetchone()
-                        if mun_row:
-                            mun_id = mun_row[0]
-                            conn.execute(
-                                """
-                                UPDATE base_inventories 
-                                SET stock_current = MAX(0, stock_current - ?) 
-                                WHERE munitions_id = ?
-                                  AND (
-                                      (? = 'US' AND (base_id LIKE '%Guam%' OR base_id LIKE '%Kadena%' OR base_id LIKE '%Yokosuka%' OR base_id LIKE '%Manama%' OR base_id LIKE '%Udeid%'))
-                                      OR (? = 'TW' AND (base_id LIKE '%Tsoying%' OR base_id LIKE '%Chingchuangang%'))
-                                      OR (? = 'CN' AND (base_id LIKE '%Sanya%' OR base_id LIKE '%Zhanjiang%'))
-                                      OR (? = 'IR' AND base_id LIKE '%Bandar%')
-                                      OR (? = 'IL' AND base_id LIKE '%Palmachim%')
-                                      OR (? = 'HOUTHIS' AND base_id LIKE '%Hodeidah%')
-                                  )
-                                """,
-                                (res["ammo_consume_defender"], mun_id, res["defender_concrete_id"], res["defender_concrete_id"], res["defender_concrete_id"], res["defender_concrete_id"], res["defender_concrete_id"], res["defender_concrete_id"])
-                            )
+                        # Deduct base_inventories if V6 table exists
+                        if has_v6:
+                            cursor.execute("SELECT munitions_id FROM platform_munitions WHERE munitions_family = ?", (res["defender_family"],))
+                            mun_row = cursor.fetchone()
+                            if mun_row:
+                                mun_id = mun_row[0]
+                                conn.execute(
+                                    """
+                                    UPDATE base_inventories 
+                                    SET stock_current = MAX(0, stock_current - ?) 
+                                    WHERE munitions_id = ?
+                                      AND (
+                                          (? = 'US' AND (base_id LIKE '%Guam%' OR base_id LIKE '%Kadena%' OR base_id LIKE '%Yokosuka%' OR base_id LIKE '%Manama%' OR base_id LIKE '%Udeid%'))
+                                          OR (? = 'TW' AND (base_id LIKE '%Tsoying%' OR base_id LIKE '%Chingchuangang%'))
+                                          OR (? = 'CN' AND (base_id LIKE '%Sanya%' OR base_id LIKE '%Zhanjiang%'))
+                                          OR (? = 'IR' AND base_id LIKE '%Bandar%')
+                                          OR (? = 'IL' AND base_id LIKE '%Palmachim%')
+                                          OR (? = 'HOUTHIS' AND base_id LIKE '%Hodeidah%')
+                                      )
+                                    """,
+                                    (res["ammo_consume_defender"], mun_id, res["defender_concrete_id"], res["defender_concrete_id"], res["defender_concrete_id"], res["defender_concrete_id"], res["defender_concrete_id"], res["defender_concrete_id"])
+                                )
                     conn.commit()
                 finally:
                     conn.close()
