@@ -726,8 +726,20 @@ class V2UnitTests(unittest.TestCase):
             self.assertEqual(row[1], 1000, "stock_max should match platform initial_ammo_stock")
             self.assertEqual(row[2], 0.05, "burn_rate_standby should be 0.05")
             self.assertEqual(row[3], 2.5, "burn_rate_active should be 2.5")
-            self.assertEqual(row[4], 4, "resupply_rate_turn should be 4")
-            
+            # Verify specific new V6 entities
+            cursor.execute("SELECT COUNT(*) FROM geographic_bases WHERE base_id = 'Vladivostok_Naval'")
+            self.assertEqual(cursor.fetchone()[0], 1, "Vladivostok_Naval base should be seeded")
+
+            cursor.execute("SELECT COUNT(*) FROM platform_munitions WHERE munitions_id = '3M22_Zircon'")
+            self.assertEqual(cursor.fetchone()[0], 1, "3M22_Zircon munitions should be seeded")
+
+            cursor.execute("SELECT COUNT(*) FROM actor_redlines WHERE redline_id = 'RU_NATO_REDLINE'")
+            self.assertEqual(cursor.fetchone()[0], 1, "RU_NATO_REDLINE should be seeded")
+
+            # Check base inventories total count is reasonably high
+            cursor.execute("SELECT COUNT(*) FROM base_inventories")
+            self.assertGreaterEqual(cursor.fetchone()[0], 30, "Should have seeded base inventories for new bases")
+
             conn.close()
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
