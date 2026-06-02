@@ -89,6 +89,28 @@ python scripts/world_kb_import.py `
 
 Use `scripts/query_knowledge_db.py` as the stable LLM-facing query interface. Use `--knowledge-db <path>` on `run_campaign.py` or `run_turn.py` when a scenario needs an isolated database.
 
+## Example Scenario
+
+The bundled US-Iran / Hormuz scenario is a synthetic exercise baseline for deterministic replay-pipeline validation. It is not a news record, intelligence assessment, or statement of real-time events.
+
+Run the scenario with deterministic mock actors:
+
+```powershell
+python scripts/run_campaign.py `
+  --mission in/mission_us_iran_20260508.json `
+  --scenario in/scenario_pack_us_iran_20260508.json `
+  --actor-config in/actor_config_us_iran_20260508.json `
+  --collection-plan in/collection_plan_us_iran_20260508.json `
+  --out out/us_iran_20260508_mock `
+  --engine gemini_actor `
+  --actor-execution v45_concrete `
+  --actor-scope core `
+  --mock-gemini `
+  --turns 1
+```
+
+The run produces actor context, controller decisions, violations, multi-actor synthesis, and executive, analyst, and news reports under `out/us_iran_20260508_mock/`.
+
 ## Outputs and Replay Artifacts
 
 Typical outputs include:
@@ -128,7 +150,7 @@ python -m unittest discover -s tests -p "test_*.py"
 
 ## Version History
 
-See [CHANGELOG.md](./CHANGELOG.md) for the tagged `v2.3.0` release and later development milestones.
+See [CHANGELOG.md](./CHANGELOG.md) for the tagged `v0.6.0` release and earlier development milestones.
 
 ## License
 

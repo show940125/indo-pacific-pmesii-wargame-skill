@@ -6,8 +6,15 @@ The entries below distinguish the tagged release from later development mileston
 
 ## [Unreleased]
 
-- Added Apache License 2.0 licensing, project notice, and public runtime documentation.
-- Documented the shared-core synchronization boundary for Gemini / Antigravity and Codex deployments.
+## [v0.6.0] - 2026-06-02
+
+- Added Apache License 2.0 licensing, project notice, bilingual documentation, and CI guidance.
+- Documented the V5 baseline with V6 development additions.
+- Added the SQLite-backed world knowledge layer, provenance tracking, and replay artifacts.
+- Added named bases, munitions, logistics lanes, inventories, redlines, and saturation-decay combat resolution.
+- Added stochastic combat, transit delays, stockpile depletion, and dynamic constraints.
+- Added a deterministic synthetic example scenario for replay-pipeline validation.
+- Documented the shared-core runtime boundary: Gemini / Antigravity uses native subagents, while the Codex CLI bridge remains planned adapter work.
 
 ## V6 development - 2026-05-25
 
@@ -42,3 +49,4 @@ The entries below distinguish the tagged release from later development mileston
 - Added bilingual documentation and CI coverage.
 
 [v2.3.0]: https://github.com/show940125/indo-pacific-pmesii-wargame-skill/releases/tag/v2.3.0
+[v0.6.0]: https://github.com/show940125/indo-pacific-pmesii-wargame-skill/releases/tag/v0.6.0

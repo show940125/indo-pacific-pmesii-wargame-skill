@@ -89,6 +89,28 @@ python scripts/world_kb_import.py `
 
 請用 `scripts/query_knowledge_db.py` 作為穩定的 LLM 查詢入口。若情境需要獨立資料庫，可在 `run_campaign.py` 或 `run_turn.py` 使用 `--knowledge-db <path>`。
 
+## 範例情境
+
+內建的 US-Iran / Hormuz 情境是用於 deterministic replay-pipeline 驗證的 synthetic exercise baseline。它不是新聞紀錄、情報判斷或即時事件陳述。
+
+使用 deterministic mock actors 執行情境：
+
+```powershell
+python scripts/run_campaign.py `
+  --mission in/mission_us_iran_20260508.json `
+  --scenario in/scenario_pack_us_iran_20260508.json `
+  --actor-config in/actor_config_us_iran_20260508.json `
+  --collection-plan in/collection_plan_us_iran_20260508.json `
+  --out out/us_iran_20260508_mock `
+  --engine gemini_actor `
+  --actor-execution v45_concrete `
+  --actor-scope core `
+  --mock-gemini `
+  --turns 1
+```
+
+執行後會在 `out/us_iran_20260508_mock/` 產生 actor context、controller decisions、violations、multi-actor synthesis，以及 executive、analyst 與 news reports。
+
 ## 輸出與回放
 
 典型輸出包括：
@@ -128,7 +150,7 @@ python -m unittest discover -s tests -p "test_*.py"
 
 ## 版本紀錄
 
-請參閱 [CHANGELOG.md](./CHANGELOG.md)，其中區分正式標記的 `v2.3.0` release 與後續開發里程碑。
+請參閱 [CHANGELOG.md](./CHANGELOG.md)，其中記錄正式標記的 `v0.6.0` release 與先前開發里程碑。
 
 ## 授權
 
